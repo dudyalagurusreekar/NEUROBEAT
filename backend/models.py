@@ -88,6 +88,10 @@ class MovementEvent(Base):
     event_type = Column(String(20), default="STEP") # 'STEP', 'TAP', 'VOICE'
     side = Column(String(10), nullable=True) # 'LEFT', 'RIGHT'
     confidence = Column(Float, default=1.0)
+    matched_beat_timestamp = Column(Float, nullable=True)
+    timing_error_ms = Column(Float, nullable=True)
+    sync_score = Column(Float, nullable=True)
+    phase = Column(String(20), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     session = relationship("TherapySession", back_populates="movement_events")

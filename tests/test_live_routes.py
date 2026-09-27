@@ -127,5 +127,37 @@ class TestLiveRoutes(unittest.TestCase):
         self.assertNotIn('id="cameraFeed"', html)
         self.assertNotIn('id="cameraStatusBadge"', html)
 
+    def test_speech_rhythm_completion(self):
+        resp = self.client.post('/session/start', json={'session_type': 'speech_rhythm', 'initial_bpm': 60, 'target_bpm': 70})
+        self.assertEqual(resp.status_code, 200)
+        sid = resp.get_json()['session_id']
+
+        # Complete with verified vocal metrics
+        payload = {
+            'duration': 60,
+            'final_bpm': 62,
+            'accuracy_score': 84.5,
+            'vocal_count': 24,
+            'vocal_cadence': 60,
+            'notes': 'Completed Speech Rhythm session with rhythmic syllable pacing and vocal synchronization. Syllables: 24.',
+            'metrics_data': {
+                'schema_version': '2.0',
+                'session_id': sid,
+                'session_type': 'speech_rhythm',
+                'movement': {'vocal_count': 24, 'vocal_cadence_spm': 60},
+                'sync': {'valid': True, 'rhythm_alignment_score': 84.5}
+            }
+        }
+        comp_resp = self.client.post(f'/session/{sid}/complete', json=payload)
+        self.assertEqual(comp_resp.status_code, 200)
+        self.assertTrue(comp_resp.get_json()['success'])
+
+        # Verify DB session record
+        with app.app_context():
+            session = TherapySession.query.get(sid)
+            self.assertTrue(session.completed)
+            self.assertEqual(session.accuracy_score, 84.5)
+            self.assertIn('Syllables: 24', session.notes)
+
 if __name__ == '__main__':
     unittest.main()

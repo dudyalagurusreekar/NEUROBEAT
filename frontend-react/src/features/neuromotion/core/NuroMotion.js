@@ -49,6 +49,10 @@ export class NuroMotion {
     this.engine.reset();
   }
 
+  setTargetBpm(bpm) {
+    this.engine.setTargetBpm(bpm);
+  }
+
   getState() {
     return {
       isRunning: this.engine.isRunning,

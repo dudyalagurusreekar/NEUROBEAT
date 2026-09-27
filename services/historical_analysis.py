@@ -51,7 +51,7 @@ def get_patient_history(
             "initial_bpm": s.initial_bpm or 60.0,
             "final_bpm": s.final_bpm or s.initial_bpm or 60.0,
             "target_bpm": s.target_bpm or 60.0,
-            "accuracy_score": round(float(s.accuracy_score), 1) if s.accuracy_score is not None else None,
+            "accuracy_score": round(float(s.accuracy_score or 0.0), 1),
             "date": s.end_time.strftime("%Y-%m-%d %H:%M") if s.end_time else None
         })
     return history
@@ -199,7 +199,7 @@ def save_or_update_clinical_report(
     report.initial_bpm = ts.initial_bpm
     report.final_bpm = ts.final_bpm or ts.initial_bpm
     report.target_bpm = ts.target_bpm
-    report.accuracy_score = ts.accuracy_score
+    report.accuracy_score = ts.accuracy_score or 0.0
     report.movement_count = int(report_dict.get("movement_count", ts.total_steps or 0))
 
     # Structured clinical bullet points
@@ -216,13 +216,8 @@ def save_or_update_clinical_report(
 
     # SOAP documentation
     soap = report_dict.get("soap") or {}
-    default_obj = (
-        f"Completed {report.duration_seconds}s at {report.final_bpm} BPM with {report.accuracy_score}% accuracy."
-        if report.accuracy_score is not None
-        else f"Completed {report.duration_seconds}s at {report.final_bpm} BPM. Insufficient movement data was captured to calculate synchronization accuracy."
-    )
     report.soap_subjective = str(soap.get("subjective", ""))
-    report.soap_objective = str(soap.get("objective", default_obj))
+    report.soap_objective = str(soap.get("objective", f"Completed {report.duration_seconds}s at {report.final_bpm} BPM with {report.accuracy_score}% accuracy."))
     report.soap_assessment = str(soap.get("assessment", ""))
     report.soap_plan = str(soap.get("plan", ""))
 

@@ -22,8 +22,8 @@ export default function PatientScreen({ clinicianSettings }) {
   // Session tracking
   const [sessionId, setSessionId] = useState(null);
   const [duration, setDuration] = useState(0);
-  const [syncAccuracy, setSyncAccuracy] = useState(91);
-  const [timingErrorMs, setTimingErrorMs] = useState(24);
+  const [syncAccuracy, setSyncAccuracy] = useState(null);
+  const [timingErrorMs, setTimingErrorMs] = useState(null);
   const [totalSteps, setTotalSteps] = useState(0);
   const [_lastStepSide, setLastStepSide] = useState('LEFT');
   const [freezingCount, setFreezingCount] = useState(0);
@@ -58,7 +58,7 @@ export default function PatientScreen({ clinicianSettings }) {
   const nuroMotionRef = useRef(null);
   const nuroSyncRef = useRef(null);
   const adaptationEngineRef = useRef(null);
-  const syncHistoryRef = useRef([90, 92, 91]);
+  const syncHistoryRef = useRef([]);
 
   // Real-time Pose & Telemetry Tracking States
   const [landmarksData, setLandmarksData] = useState(null);
@@ -86,7 +86,7 @@ export default function PatientScreen({ clinicianSettings }) {
 
   // Initialize Engines
   useEffect(() => {
-    nuroSyncRef.current = new NuroSync(220);
+    nuroSyncRef.current = new NuroSync(null, bpm);
     adaptationEngineRef.current = new AdaptationEngine(
       clinicianSettings?.minBpm || 45,
       clinicianSettings?.maxBpm || 72
@@ -106,11 +106,14 @@ export default function PatientScreen({ clinicianSettings }) {
         }
       });
 
-
       nuroMotionRef.current.core.onMetrics((data) => {
         setCadenceSpm(data.cadence.displaySpm);
         setBalanceScore(data.balance.balanceScore);
         setQualityScore(data.quality.qualityScore);
+        if (data.sync && typeof data.sync.syncScore === 'number') {
+          setSyncAccuracy(data.sync.syncScore);
+          setTimingErrorMs(data.sync.timingErrorMs ?? 0);
+        }
         setAudioState({
           level: data.audio?.level ?? 0,
           activity: data.audio?.activity ?? false,
@@ -242,6 +245,16 @@ export default function PatientScreen({ clinicianSettings }) {
       if (durationTimerRef.current) clearInterval(durationTimerRef.current);
     };
   }, [isPlaying, isResting]);
+
+  // Synchronize target tempo across rhythm engines
+  useEffect(() => {
+    if (nuroSyncRef.current && typeof nuroSyncRef.current.setBpm === 'function') {
+      nuroSyncRef.current.setBpm(bpm);
+    }
+    if (nuroMotionRef.current && typeof nuroMotionRef.current.setTargetBpm === 'function') {
+      nuroMotionRef.current.setTargetBpm(bpm);
+    }
+  }, [bpm]);
 
   // Start Session handler
   const handleStartSession = async () => {
@@ -444,6 +457,7 @@ export default function PatientScreen({ clinicianSettings }) {
           totalSteps,
           balanceScore,
           qualityScore,
+          syncScore: syncAccuracy,
           timingErrorMs,
         }}
         audioState={audioState}
@@ -512,14 +526,14 @@ export default function PatientScreen({ clinicianSettings }) {
           }}>
             <CheckCircle2 size={18} color="var(--primary)" />
             <span style={{ fontSize: '15px', fontWeight: 800, color: 'var(--primary)' }}>
-              {syncAccuracy}% Rhythm Sync
+              {syncAccuracy !== null ? `${syncAccuracy}% Rhythm Sync` : 'Awaiting Steps'}
             </span>
           </div>
 
           <div style={{ textAlign: 'right' }}>
             <span style={{ fontSize: '13px', color: 'var(--text-muted)', display: 'block' }}>Timing Error</span>
-            <span style={{ fontSize: '18px', fontWeight: 700, color: timingErrorMs < 45 ? '#27AE60' : 'var(--coral-accent)' }}>
-              ±{timingErrorMs}ms
+            <span style={{ fontSize: '18px', fontWeight: 700, color: syncAccuracy !== null ? (timingErrorMs !== null && timingErrorMs < 45 ? '#27AE60' : 'var(--coral-accent)') : 'var(--text-muted)' }}>
+              {syncAccuracy !== null && timingErrorMs !== null ? `±${timingErrorMs}ms` : '--'}
             </span>
           </div>
         </div>
@@ -898,7 +912,7 @@ export default function PatientScreen({ clinicianSettings }) {
                   </div>
                   <div>
                     <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block' }}>Avg Sync</span>
-                    <strong style={{ fontSize: '16px', color: 'var(--primary)' }}>{syncAccuracy}%</strong>
+                    <strong style={{ fontSize: '16px', color: 'var(--primary)' }}>{syncAccuracy !== null ? `${syncAccuracy}%` : 'Not Measured'}</strong>
                   </div>
                   <div>
                     <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block' }}>Total Steps</span>

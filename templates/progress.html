@@ -36,7 +36,7 @@
                 <div class="card">
                     <div class="card-body text-center">
                         <i data-feather="clock" class="mb-2" style="width: 32px; height: 32px;"></i>
-                        <h4>{{ total_minutes }}</h4>
+                        <h4>{{ (sessions|sum(attribute='duration_seconds') // 60) or 0 }}</h4>
                         <p class="text-muted mb-0">Total Minutes</p>
                     </div>
                 </div>
@@ -45,7 +45,7 @@
                 <div class="card">
                     <div class="card-body text-center">
                         <i data-feather="target" class="mb-2" style="width: 32px; height: 32px;"></i>
-                        <h4>{{ avg_accuracy ~ '%' if avg_accuracy is not none else '—' }}</h4>
+                        <h4>{{ ((sessions|selectattr('accuracy_score')|sum(attribute='accuracy_score')) / (sessions|selectattr('accuracy_score')|list|length))|round|int if sessions|selectattr('accuracy_score')|list else 0 }}%</h4>
                         <p class="text-muted mb-0">Avg Accuracy</p>
                     </div>
                 </div>
@@ -54,7 +54,7 @@
                 <div class="card">
                     <div class="card-body text-center">
                         <i data-feather="trending-up" class="mb-2" style="width: 32px; height: 32px;"></i>
-                        <h4>{{ current_bpm }} BPM</h4>
+                        <h4>{{ sessions[-1].final_bpm|round|int if sessions and sessions[-1].final_bpm else (patient_profile.baseline_cadence|round|int if patient_profile.baseline_cadence else 'N/A') }}</h4>
                         <p class="text-muted mb-0">Current BPM</p>
                     </div>
                 </div>
@@ -92,11 +92,11 @@
                     <div class="row">
                         <div class="col-6">
                             <small>Cadence</small>
-                            <div class="h5">{{ baseline_cadence }} BPM</div>
+                            <div class="h5">{{ patient_profile.baseline_cadence|round|int if patient_profile.baseline_cadence else 'N/A' }}</div>
                         </div>
                         <div class="col-6">
                             <small>Target</small>
-                            <div class="h5">{{ target_cadence }} BPM</div>
+                            <div class="h5">{{ patient_profile.target_cadence|round|int if patient_profile.target_cadence else 'N/A' }}</div>
                         </div>
                     </div>
                 </div>
@@ -107,14 +107,10 @@
                     {% set recent_sessions = sessions[-5:] %}
                     {% for session in recent_sessions %}
                     <div class="d-flex justify-content-between align-items-center mb-2">
-                        <small>{{ session.start_time.strftime('%m/%d') if session.start_time else 'Session' }}</small>
-                        {% if session.accuracy_score is not none %}
-                            <span class="badge {% if session.accuracy_score >= 80 %}bg-success{% elif session.accuracy_score >= 60 %}bg-warning{% else %}bg-danger{% endif %}">
-                                {{ session.accuracy_score|round|int }}%
-                            </span>
-                        {% else %}
-                            <span class="badge bg-secondary" title="Insufficient movement data">&mdash;</span>
-                        {% endif %}
+                        <small>{{ session.start_time.strftime('%m/%d') }}</small>
+                        <span class="badge {% if session.accuracy_score >= 80 %}bg-success{% elif session.accuracy_score >= 60 %}bg-warning{% else %}bg-danger{% endif %}">
+                            {{ session.accuracy_score|round|int if session.accuracy_score else 'N/A' }}%
+                        </span>
                     </div>
                     {% endfor %}
                 </div>
@@ -163,9 +159,9 @@
                 </h5>
             </div>
             <div class="card-body">
-                {% if formatted_sessions %}
+                {% if sessions %}
                     <div class="table-responsive">
-                        <table class="table table-hover align-middle">
+                        <table class="table table-hover">
                             <thead>
                                 <tr>
                                     <th>Date & Time</th>
@@ -174,102 +170,37 @@
                                     <th>BPM Range</th>
                                     <th>Accuracy</th>
                                     <th>Notes</th>
-                                    <th class="text-end">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for s in formatted_sessions|reverse %}
-                                <tr>
-                                    <td>{{ s.start_time.strftime('%m/%d/%Y %I:%M %p') if s.start_time else 'Recently' }}</td>
-                                    <td>
-                                        <span class="badge" style="background: rgba(1, 170, 197, 0.12); color: #01aac5; border: 1px solid rgba(1, 170, 197, 0.3);">
-                                            {{ s.session_type.replace('_', ' ').title() }}
-                                        </span>
-                                    </td>
-                                    <td>{{ s.duration_str }}</td>
-                                    <td>{{ s.bpm_str }} BPM</td>
-                                    <td>
-                                        {% if s.accuracy_score is not none %}
-                                            <span class="badge {% if s.accuracy_score >= 80 %}bg-success{% elif s.accuracy_score >= 60 %}bg-warning{% else %}bg-danger{% endif %}">
-                                                {{ s.accuracy_score }}%
-                                            </span>
-                                        {% else %}
-                                            <span class="badge bg-secondary" title="Insufficient movement data">&mdash;</span>
-                                        {% endif %}
-                                    </td>
-                                    <td>
-                                        {% if s.notes %}
-                                            <small class="text-muted">{{ s.notes[:45] }}{% if s.notes|length > 45 %}...{% endif %}</small>
-                                        {% else %}
-                                            <small class="text-muted">Completed</small>
-                                        {% endif %}
-                                    </td>
-                                    <td class="text-end">
-                                        <a href="{{ url_for('session_report_view', session_id=s.id) }}" class="btn btn-sm btn-outline-info">
-                                            <i data-feather="file-text" style="width: 12px; height: 12px;" class="me-1"></i> View Report
-                                        </a>
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                {% elif sessions %}
-                    <div class="table-responsive">
-                        <table class="table table-hover align-middle">
-                            <thead>
-                                <tr>
-                                    <th>Date & Time</th>
-                                    <th>Type</th>
-                                    <th>Duration</th>
-                                    <th>BPM Range</th>
-                                    <th>Accuracy</th>
-                                    <th>Notes</th>
-                                    <th class="text-end">Action</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for session in sessions|reverse %}
                                 <tr>
-                                    <td>{{ session.start_time.strftime('%m/%d/%Y %I:%M %p') if session.start_time else 'Recently' }}</td>
+                                    <td>{{ session.start_time.strftime('%m/%d/%Y %I:%M %p') }}</td>
                                     <td>
                                         <span class="badge bg-primary">{{ session.session_type.replace('_', ' ').title() }}</span>
                                     </td>
+                                    <td>{{ (session.duration_seconds // 60) if session.duration_seconds else 'N/A' }} min</td>
                                     <td>
-                                        {% if session.duration_seconds and session.duration_seconds < 60 %}
-                                            {{ session.duration_seconds }}s
-                                        {% elif session.duration_seconds %}
-                                            {{ session.duration_seconds // 60 }}m {{ session.duration_seconds % 60 }}s
-                                        {% else %}
-                                            &lt; 1 min
+                                        {{ session.initial_bpm|round|int }} 
+                                        {% if session.final_bpm and session.final_bpm != session.initial_bpm %}
+                                            → {{ session.final_bpm|round|int }}
                                         {% endif %}
                                     </td>
                                     <td>
-                                        {{ session.initial_bpm|round|int }}
-                                        {% if session.final_bpm and session.final_bpm != session.initial_bpm %}
-                                            → {{ session.final_bpm|round|int }}
-                                        {% endif %} BPM
-                                    </td>
-                                    <td>
-                                        {% if session.accuracy_score is not none %}
+                                        {% if session.accuracy_score %}
                                             <span class="badge {% if session.accuracy_score >= 80 %}bg-success{% elif session.accuracy_score >= 60 %}bg-warning{% else %}bg-danger{% endif %}">
                                                 {{ session.accuracy_score|round|int }}%
                                             </span>
                                         {% else %}
-                                            <span class="badge bg-secondary" title="Insufficient movement data">&mdash;</span>
+                                            <span class="badge bg-secondary">N/A</span>
                                         {% endif %}
                                     </td>
                                     <td>
                                         {% if session.notes %}
-                                            <small class="text-muted">{{ session.notes[:45] }}</small>
+                                            <small class="text-muted">{{ session.notes[:50] }}{% if session.notes|length > 50 %}...{% endif %}</small>
                                         {% else %}
-                                            <small class="text-muted">Completed</small>
+                                            <small class="text-muted">No notes</small>
                                         {% endif %}
-                                    </td>
-                                    <td class="text-end">
-                                        <a href="{{ url_for('session_report_view', session_id=session.id) }}" class="btn btn-sm btn-outline-info">
-                                            <i data-feather="file-text" style="width: 12px; height: 12px;" class="me-1"></i> View Report
-                                        </a>
                                     </td>
                                 </tr>
                                 {% endfor %}

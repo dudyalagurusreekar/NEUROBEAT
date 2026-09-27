@@ -63,10 +63,39 @@ export class NuroMotion {
 
 
 export class NuroSync {
-  constructor(toleranceMs = 250) {
-    this.toleranceMs = toleranceMs;
+  constructor(toleranceMs = null, initialBpm = 60) {
+    this.currentBpm = initialBpm;
+    this.customTolerance = toleranceMs;
+    this.toleranceMs = toleranceMs !== null ? toleranceMs : this.calculateDynamicTolerance(this.currentBpm);
     this.beatTimestamps = [];
     this.errorHistory = []; // list of timing errors in ms
+    this.scoreHistory = []; // list of per-event sync scores
+    this.rhythmAlignmentScore = null;
+  }
+
+  calculateDynamicTolerance(bpm) {
+    const validBpm = (Number.isFinite(bpm) && bpm > 0) ? bpm : 60;
+    const beatPeriodMs = 60000.0 / validBpm;
+    return Number((beatPeriodMs * 0.20).toFixed(1));
+  }
+
+  setBpm(bpm) {
+    if (Number.isFinite(bpm) && bpm > 0) {
+      this.currentBpm = bpm;
+      if (this.customTolerance === null) {
+        this.toleranceMs = this.calculateDynamicTolerance(bpm);
+      }
+    }
+  }
+
+  setTolerance(toleranceMs) {
+    if (Number.isFinite(toleranceMs) && toleranceMs > 0) {
+      this.customTolerance = toleranceMs;
+      this.toleranceMs = toleranceMs;
+    } else if (toleranceMs === null) {
+      this.customTolerance = null;
+      this.toleranceMs = this.calculateDynamicTolerance(this.currentBpm);
+    }
   }
 
   recordBeat(timestamp) {
@@ -79,11 +108,18 @@ export class NuroSync {
 
   evaluateStep(stepTimestamp) {
     if (this.beatTimestamps.length === 0) {
-      return { timingErrorMs: 0, syncScore: 85, isSynchronized: true };
+      return {
+        valid: false,
+        timingErrorMs: null,
+        syncScore: null,
+        rhythmAlignmentScore: null,
+        isSynchronized: false,
+        phase: 'NO_DATA'
+      };
     }
 
-    // Find nearest beat timestamp
     let minDiff = Infinity;
+    // Find nearest beat timestamp
     for (const bTime of this.beatTimestamps) {
       const diff = Math.abs(stepTimestamp - bTime);
       if (diff < minDiff) {
@@ -91,26 +127,56 @@ export class NuroSync {
       }
     }
 
+    // Check upcoming projected beat if event anticipates next beat
+    const lastRecorded = this.beatTimestamps[this.beatTimestamps.length - 1];
+    if (stepTimestamp > lastRecorded) {
+      const beatPeriod = 60.0 / this.currentBpm;
+      const cycles = Math.max(1, Math.round((stepTimestamp - lastRecorded) / beatPeriod));
+      const projected = lastRecorded + cycles * beatPeriod;
+      const projDiff = Math.abs(stepTimestamp - projected);
+      if (projDiff < minDiff) {
+        minDiff = projDiff;
+      }
+    }
+
     const timingErrorMs = Math.round(minDiff * 1000);
     this.errorHistory.push(timingErrorMs);
     if (this.errorHistory.length > 30) this.errorHistory.shift();
 
-    // Deterministic sync score formula
-    // Error 0ms -> 100%, Error = toleranceMs -> 0%
+    // Deterministic sync score formula based on dynamic beat tolerance
+    // Error 0ms -> 100%, Error >= toleranceMs -> 0%
     const score = Math.max(0, Math.min(100, Math.round(100 * (1 - timingErrorMs / this.toleranceMs))));
     const isSynchronized = timingErrorMs <= this.toleranceMs;
 
+    this.scoreHistory.push(score);
+    if (this.scoreHistory.length > 30) this.scoreHistory.shift();
+
+    if (this.rhythmAlignmentScore === null) {
+      this.rhythmAlignmentScore = score;
+    } else {
+      this.rhythmAlignmentScore = Math.round(0.3 * score + 0.7 * this.rhythmAlignmentScore);
+    }
+
     return {
+      valid: true,
       timingErrorMs,
       syncScore: score,
+      rhythmAlignmentScore: this.rhythmAlignmentScore,
       isSynchronized
     };
   }
 
   getAverageSync() {
-    if (this.errorHistory.length === 0) return 92;
-    const avgError = this.errorHistory.reduce((a, b) => a + b, 0) / this.errorHistory.length;
-    return Math.max(0, Math.min(100, Math.round(100 * (1 - avgError / this.toleranceMs))));
+    if (!this.scoreHistory || this.scoreHistory.length === 0) return null;
+    const avgScore = this.scoreHistory.reduce((a, b) => a + b, 0) / this.scoreHistory.length;
+    return Math.round(avgScore);
+  }
+
+  reset() {
+    this.beatTimestamps = [];
+    this.errorHistory = [];
+    this.scoreHistory = [];
+    this.rhythmAlignmentScore = null;
   }
 }
 

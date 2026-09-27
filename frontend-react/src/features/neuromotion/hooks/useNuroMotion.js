@@ -23,8 +23,10 @@ export function useNuroMotion(options = {}) {
     totalSteps: 0,
     balanceScore: 100,
     qualityScore: 85,
-    timingErrorMs: 0,
-    isSynchronized: true,
+    syncScore: null,
+    timingErrorMs: null,
+    isSynchronized: false,
+    syncStatus: 'NO_DATA',
   });
 
   // Audio metrics
@@ -67,6 +69,14 @@ export function useNuroMotion(options = {}) {
     // Movement event listener
     const unsubStep = engine.onMovementEvent((ev) => {
       setLastStep(ev);
+      if (ev.syncScore !== undefined) {
+        setMetrics((prev) => ({
+          ...prev,
+          syncScore: ev.syncScore,
+          timingErrorMs: ev.timingErrorMs ?? prev.timingErrorMs,
+          isSynchronized: Boolean(ev.timingErrorMs !== undefined ? ev.timingErrorMs <= 200 : prev.isSynchronized),
+        }));
+      }
       if (optionsRef.current?.onStep) {
         optionsRef.current.onStep(ev);
       }
@@ -82,6 +92,8 @@ export function useNuroMotion(options = {}) {
         totalSteps: data.cadence.totalSteps,
         balanceScore: data.balance.balanceScore,
         qualityScore: data.quality.qualityScore,
+        syncScore: data.sync ? data.sync.syncScore : prev.syncScore,
+        timingErrorMs: data.sync ? data.sync.timingErrorMs : prev.timingErrorMs,
       }));
 
       setAudioState({
@@ -183,8 +195,10 @@ export function useNuroMotion(options = {}) {
       totalSteps: 0,
       balanceScore: 100,
       qualityScore: 85,
-      timingErrorMs: 0,
-      isSynchronized: true,
+      syncScore: null,
+      timingErrorMs: null,
+      isSynchronized: false,
+      syncStatus: 'NO_DATA',
     });
     setLastStep(null);
   }, []);

@@ -68,29 +68,6 @@ class TestMasterIntegration(unittest.TestCase):
             PatientPerformanceEnvelope.query.filter_by(patient_id=self.patient_id).delete()
             db.session.commit()
 
-    @staticmethod
-    def _make_telemetry(bpm: float, accuracy: float, step_count: int = 10, confidence: float = 0.95):
-        interval_ms = 60000.0 / bpm
-        tolerance_ms = min(interval_ms * 0.25, 250.0)
-        error_ms = tolerance_ms * (1.0 - (accuracy / 100.0))
-        beat_timestamps = [int(1000 + i * interval_ms) for i in range(step_count)]
-        movement_events = []
-        for i, bt in enumerate(beat_timestamps):
-            side = "LEFT" if i % 2 == 0 else "RIGHT"
-            movement_events.append({
-                "timestamp_ms": int(bt + error_ms),
-                "type": "STEP",
-                "side": side,
-                "confidence": confidence
-            })
-        return {
-            "valid_pose_frames": 100,
-            "total_pose_frames": 100,
-            "pose_confidence": confidence,
-            "beat_timestamps_ms": beat_timestamps,
-            "movement_events": movement_events
-        }
-
     # =========================================================================
     # 1. Multi-Session Learning & Personal Performance Envelope Continuity
     # =========================================================================
@@ -114,14 +91,12 @@ class TestMasterIntegration(unittest.TestCase):
         self.assertIsNone(s1_data.get('performance_envelope'))
 
         # Complete Session 1 with high accuracy (88%) and final BPM 64
-        c1_payload = {
+        comp1 = self.client.post(f'/session/{s1_id}/complete', json={
             'duration': 300,
             'final_bpm': 64,
             'accuracy_score': 88.0,
             'metrics_data': {'movement_quality': {'overall': 0.86}}
-        }
-        c1_payload.update(self._make_telemetry(64, 88.0))
-        comp1 = self.client.post(f'/session/{s1_id}/complete', json=c1_payload)
+        })
         self.assertEqual(comp1.status_code, 200)
 
         # Verify envelope was created after Session 1
@@ -145,14 +120,12 @@ class TestMasterIntegration(unittest.TestCase):
         self.assertGreaterEqual(s2_data['initial_bpm'], 60)
 
         # Complete Session 2 with high performance at 66 BPM
-        c2_payload = {
+        comp2 = self.client.post(f'/session/{s2_id}/complete', json={
             'duration': 360,
             'final_bpm': 66,
             'accuracy_score': 90.0,
             'metrics_data': {'movement_quality': {'overall': 0.89}}
-        }
-        c2_payload.update(self._make_telemetry(66, 90.0))
-        comp2 = self.client.post(f'/session/{s2_id}/complete', json=c2_payload)
+        })
         self.assertEqual(comp2.status_code, 200)
 
         # Check envelope update
@@ -169,14 +142,12 @@ class TestMasterIntegration(unittest.TestCase):
         })
         s3_id = resp3.get_json()['session_id']
 
-        c3_payload = {
+        comp3 = self.client.post(f'/session/{s3_id}/complete', json={
             'duration': 240,
             'final_bpm': 68,
             'accuracy_score': 55.0,
             'metrics_data': {'movement_quality': {'overall': 0.58}}
-        }
-        c3_payload.update(self._make_telemetry(68, 55.0))
-        comp3 = self.client.post(f'/session/{s3_id}/complete', json=c3_payload)
+        })
         self.assertEqual(comp3.status_code, 200)
 
         # --- Session 4: Verify learned envelope is durable ---

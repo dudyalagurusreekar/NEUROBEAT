@@ -118,23 +118,27 @@ class TherapySession {
     }
 
     calculateCurrentAccuracy() {
-        const baseAccuracy = 75 + Math.random() * 20;
-        const bpmDeviation = Math.abs(this.currentBPM - this.targetBPM) / this.targetBPM;
-        const bpmPenalty = bpmDeviation * 30;
-        
-        const accuracy = Math.max(0, Math.min(100, baseAccuracy - bpmPenalty));
-        
-        this.metrics.currentAccuracy = accuracy;
-        this.accuracyHistory.push({
-            timestamp: new Date(),
-            accuracy: accuracy
-        });
-        
-        if (this.accuracyHistory.length > 50) {
-            this.accuracyHistory.shift();
+        let accuracy = null;
+        if (window.nuroSync && typeof window.nuroSync.getCurrentAccuracy === 'function') {
+            const current = window.nuroSync.getCurrentAccuracy();
+            if (current !== null && current !== undefined && window.nuroSync.totalStepsEvaluated > 0) {
+                accuracy = current;
+            }
         }
         
-        return accuracy;
+        this.metrics.currentAccuracy = accuracy;
+        if (accuracy !== null) {
+            this.accuracyHistory.push({
+                timestamp: new Date(),
+                accuracy: accuracy
+            });
+            
+            if (this.accuracyHistory.length > 50) {
+                this.accuracyHistory.shift();
+            }
+        }
+        
+        return accuracy !== null ? accuracy : 0;
     }
 
     calculateOverallAccuracy() {

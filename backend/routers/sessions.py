@@ -42,17 +42,31 @@ def push_session_events(session_id: int, push_data: SessionEventsPush, db: Sessi
             detail={"error": True, "code": "SESSION_NOT_FOUND", "message": f"Session with ID {session_id} not found"}
         )
 
+    valid_sync_scores = []
     for ev in push_data.events:
         db_event = MovementEvent(
             session_id=session_id,
             timestamp=ev.timestamp,
             event_type=ev.type,
             side=ev.side,
-            confidence=ev.confidence
+            confidence=ev.confidence,
+            matched_beat_timestamp=ev.matched_beat_timestamp,
+            timing_error_ms=ev.timing_error_ms,
+            sync_score=ev.sync_score,
+            phase=ev.phase
         )
         db.add(db_event)
+        if ev.sync_score is not None:
+            valid_sync_scores.append(ev.sync_score)
 
     session.total_steps += len(push_data.events)
+    if valid_sync_scores:
+        for score in valid_sync_scores:
+            if session.avg_sync_score == 0:
+                session.avg_sync_score = float(score)
+            else:
+                session.avg_sync_score = round((session.avg_sync_score * 0.85) + (score * 0.15), 1)
+
     db.commit()
 
     return {"success": True, "events_recorded": len(push_data.events), "total_steps": session.total_steps}
@@ -70,8 +84,13 @@ def push_session_telemetry(session_id: int, telemetry: SessionTelemetryPush, db:
     new_total = (telemetry.gait.left_steps or 0) + (telemetry.gait.right_steps or 0)
     if new_total > session.total_steps:
         session.total_steps = new_total
-    if telemetry.sync.score > 0:
-        session.avg_sync_score = round((session.avg_sync_score * 0.85) + (telemetry.sync.score * 0.15), 1)
+
+    # Only aggregate valid synchronization events, never idle camera frames
+    if getattr(telemetry.sync, 'valid', False) and telemetry.sync.score is not None:
+        if session.avg_sync_score == 0:
+            session.avg_sync_score = float(telemetry.sync.score)
+        else:
+            session.avg_sync_score = round((session.avg_sync_score * 0.85) + (telemetry.sync.score * 0.15), 1)
 
     db.commit()
     return {"success": True, "session_id": session_id, "timestamp": telemetry.timestamp}

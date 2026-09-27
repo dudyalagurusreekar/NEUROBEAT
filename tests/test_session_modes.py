@@ -100,5 +100,50 @@ class TestSessionModes(unittest.TestCase):
         self.assertIn("steps", gait_fb.lower())
         self.assertIn("symmetry", gait_fb.lower())
 
+    def test_deterministic_patient_feedback_zero_input(self):
+        """Zero-input sessions must truthfully state no vocalization, taps, or steps detected."""
+        speech_zero = _generate_deterministic_patient_feedback("speech_rhythm", accuracy=0.0)
+        self.assertIn("no vocalization detected", speech_zero.lower())
+        self.assertIn("microphone", speech_zero.lower())
+        self.assertNotIn("wonderful", speech_zero.lower())
+
+        tapping_zero = _generate_deterministic_patient_feedback("finger_tapping", accuracy=0.0)
+        self.assertIn("no tap inputs registered", tapping_zero.lower())
+        self.assertNotIn("wonderful", tapping_zero.lower())
+
+        gait_zero = _generate_deterministic_patient_feedback("gait_trainer", accuracy=0.0, left_steps=0, right_steps=0)
+        self.assertIn("no steps registered", gait_zero.lower())
+        self.assertNotIn("wonderful", gait_zero.lower())
+
+    def test_deterministic_structured_report_zero_input(self):
+        """Clinical report synopsis and assessment must indicate quiet standby when zero input is registered."""
+        from services.gemini_service import _generate_deterministic_structured_report
+        zero_data = {
+            "activity_type": "speech_rhythm",
+            "duration_seconds": 60,
+            "initial_bpm": 60,
+            "final_bpm": 60,
+            "accuracy_score": 0.0,
+            "movement_count": 0
+        }
+        report = _generate_deterministic_structured_report(zero_data)
+        self.assertIn("quiet standby", report["summary"].lower())
+        self.assertIn("zero movement or vocal events registered", report["soap"]["assessment"].lower())
+
+    def test_deterministic_session_reflection_zero_input(self):
+        """Agent reflection must acknowledge quiet standby without claiming phantom adaptation or upward trajectory."""
+        from services.gemini_service import _generate_deterministic_session_reflection
+        summary = {
+            "averageRhythmSync": 0.0,
+            "averageMovementQuality": 0.0,
+            "improvement": 0.0,
+            "bestTempo": 60,
+            "successfulTempoRange": "60 BPM"
+        }
+        reflection = _generate_deterministic_session_reflection(summary)
+        self.assertIn("quiet standby", reflection["summary"].lower())
+        self.assertIsNone(reflection["successfulAdaptation"])
+
 if __name__ == '__main__':
     unittest.main()
+

@@ -21,7 +21,6 @@ db = SQLAlchemy(model_class=Base)
 
 # Create the app
 app = Flask(__name__)
-app.jinja_env.globals.update(round=round, max=max, min=min)
 session_secret = os.environ.get("SESSION_SECRET", "neurobeat-secure-session-secret-key-32chars")
 app.secret_key = session_secret
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)

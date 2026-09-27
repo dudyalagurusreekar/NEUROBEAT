@@ -63,6 +63,10 @@ class MovementEventItem(BaseModel):
     type: str = "STEP"
     side: Optional[str] = "LEFT"
     confidence: float = 0.95
+    matched_beat_timestamp: Optional[float] = None
+    timing_error_ms: Optional[float] = None
+    sync_score: Optional[float] = None
+    phase: Optional[str] = None
 
 class SessionEventsPush(BaseModel):
     events: List[MovementEventItem]
@@ -85,8 +89,10 @@ class GaitTelemetry(BaseModel):
 
 class SyncTelemetry(BaseModel):
     target_bpm: int = 60
-    score: int = 85
-    timing_error_ms: int = 0
+    score: Optional[float] = None
+    timing_error_ms: Optional[float] = None
+    valid: bool = False
+    phase: Optional[str] = None
 
 class AudioTelemetry(BaseModel):
     level: float = 0.0

@@ -8,6 +8,9 @@ import { MovementQualityEvaluator } from '../core/MovementQuality';
 import { createTelemetryPacket, serializeTelemetry } from '../telemetry/TelemetryTypes';
 import { PoseQualityGate } from '../core/PoseQuality';
 import { LANDMARKS, TrackingState, MovementEventType, FramingStatus, FramingFeedback } from '../core/PoseTypes';
+import { NuroAudio } from '../audio/NuroAudio';
+import { PoseEngine } from '../core/PoseEngine';
+import { NuroSync } from '../../../services/nuroMotion';
 
 describe('NuroMotion Phase 1: Pure Logic Test Suite', () => {
 
@@ -461,6 +464,172 @@ describe('NuroMotion Phase 1: Pure Logic Test Suite', () => {
       expect(quality.state).toBe(TrackingState.UNCERTAIN);
       expect(quality.missingRegions).toContain('feet_visibility');
       expect(quality.framing.status).toBe(FramingStatus.FEET_NOT_VISIBLE);
+    });
+  });
+
+  // 10. NuroAudio Dynamic Beat-Relative Tolerance & Alignment
+  describe('NuroAudio Dynamic Beat-Relative Tolerance & Alignment', () => {
+    let audio;
+
+    beforeEach(() => {
+      audio = new NuroAudio();
+    });
+
+    it('derives dynamic tolerance as 20% of beat period across different BPMs', () => {
+      // 60 BPM -> 1000ms period -> 200ms tolerance
+      expect(audio.calculateDynamicTolerance(60)).toBe(200.0);
+      // 120 BPM -> 500ms period -> 100ms tolerance
+      expect(audio.calculateDynamicTolerance(120)).toBe(100.0);
+      // 50 BPM -> 1200ms period -> 240ms tolerance
+      expect(audio.calculateDynamicTolerance(50)).toBe(240.0);
+    });
+
+    it('aligns movement to registered beats with dynamic tolerance', () => {
+      audio.setBpm(60); // tolerance = 200ms
+      audio.registerSynthesizedBeat(1.0);
+      audio.registerSynthesizedBeat(2.0);
+
+      // On-beat event (0ms error)
+      const perfect = audio.alignMovementToBeat(2.000);
+      expect(perfect.timingErrorMs).toBe(0);
+      expect(perfect.syncScore).toBe(100);
+      expect(perfect.isSynchronized).toBe(true);
+      expect(perfect.phase).toBe('ON_BEAT');
+
+      // 60ms late event -> 100 * (1 - 60/200) = 70
+      const late = audio.alignMovementToBeat(2.060);
+      expect(late.timingErrorMs).toBe(60);
+      expect(late.syncScore).toBe(70);
+      expect(late.isSynchronized).toBe(true);
+      expect(late.phase).toBe('LATE');
+
+      // 220ms off-beat event -> exceeds 200ms tolerance -> score 0
+      const missed = audio.alignMovementToBeat(2.220);
+      expect(missed.timingErrorMs).toBe(220);
+      expect(missed.syncScore).toBe(0);
+      expect(missed.isSynchronized).toBe(false);
+    });
+
+    it('returns explicit NO_DATA / invalid state when beat history is empty', () => {
+      audio.setBpm(60);
+      const evalResult = audio.alignMovementToBeat(3.050, null, 60);
+      expect(evalResult.valid).toBe(false);
+      expect(evalResult.timingErrorMs).toBeNull();
+      expect(evalResult.syncScore).toBeNull();
+      expect(evalResult.isSynchronized).toBe(false);
+      expect(evalResult.phase).toBe('NO_DATA');
+    });
+  });
+
+  // 11. Semantic Decoupling: Movement Quality vs Synchronization Accuracy
+  describe('Semantic Decoupling: Movement Quality vs Synchronization Accuracy', () => {
+    it('ensures PoseEngine assigns real syncScore to sync.score rather than qualityScore', () => {
+      const engine = new PoseEngine();
+      engine.setTargetBpm(60);
+      engine.audio.registerSynthesizedBeat(1.0);
+      engine.audio.registerSynthesizedBeat(2.0);
+
+      // Simulate a step event with 50ms timing error
+      const alignment = engine.audio.alignMovementToBeat(2.050, null, 60);
+      expect(alignment.syncScore).toBe(75); // Real rhythm sync score
+
+      engine.lastSyncScore = alignment.syncScore;
+      engine.lastTimingErrorMs = alignment.timingErrorMs;
+
+      // Telemetry packet verification: movement.quality and sync.score must be independent
+      const qualityScore = 95; // High movement quality (e.g. good posture)
+      const telemetry = createTelemetryPacket({
+        sessionId: 101,
+        movement: { quality: qualityScore },
+        sync: { target_bpm: 60, score: engine.lastSyncScore, timing_error_ms: engine.lastTimingErrorMs },
+      });
+
+      expect(telemetry.movement.quality).toBe(95);
+      expect(telemetry.sync.score).toBe(75); // Preserves rhythm sync, NOT contaminated by quality!
+      expect(telemetry.sync.score).not.toBe(telemetry.movement.quality);
+    });
+
+    it('preserves high movement quality even when rhythm sync drops', () => {
+      const highQualityLowSync = createTelemetryPacket({
+        sessionId: 102,
+        movement: { quality: 92 },
+        sync: { target_bpm: 60, score: 35, timing_error_ms: 130 },
+      });
+
+      expect(highQualityLowSync.movement.quality).toBe(92);
+      expect(highQualityLowSync.sync.score).toBe(35);
+    });
+
+    it('preserves high rhythm sync even when movement quality drops', () => {
+      const lowQualityHighSync = createTelemetryPacket({
+        sessionId: 103,
+        movement: { quality: 40 },
+        sync: { target_bpm: 60, score: 95, timing_error_ms: 10 },
+      });
+
+      expect(lowQualityHighSync.movement.quality).toBe(40);
+      expect(lowQualityHighSync.sync.score).toBe(95);
+    });
+  });
+
+  // 12. NuroSync Dynamic Tolerance & Multi-tempo Consistency
+  describe('NuroSync Dynamic Tolerance & Multi-tempo Consistency', () => {
+    it('dynamically adapts tolerance when tempo changes', () => {
+      const sync = new NuroSync(null, 60);
+      expect(sync.toleranceMs).toBe(200.0);
+
+      sync.setBpm(100);
+      expect(sync.toleranceMs).toBe(120.0); // 60000 / 100 * 0.20 = 120ms
+
+      sync.setBpm(120);
+      expect(sync.toleranceMs).toBe(100.0); // 60000 / 120 * 0.20 = 100ms
+    });
+
+    it('evaluates step alignment relative to dynamic tolerance window', () => {
+      const sync = new NuroSync(null, 60); // tolerance 200ms
+      sync.recordBeat(1.0);
+      sync.recordBeat(2.0);
+
+      const res = sync.evaluateStep(2.040); // 40ms error
+      expect(res.timingErrorMs).toBe(40);
+      expect(res.syncScore).toBe(80); // 100 * (1 - 40/200) = 80
+      expect(res.isSynchronized).toBe(true);
+    });
+  });
+
+  // 13. Zero-Input Integrity & Ghost Rhythm Metric Suppression
+  describe('Zero-Input Integrity & Ghost Rhythm Metric Suppression', () => {
+    it('ensures NuroSync returns null average sync when no steps or inputs exist', () => {
+      const sync = new NuroSync(null, 60);
+      expect(sync.getAverageSync()).toBeNull(); // Must be null, never fabricate 92 or 85!
+    });
+
+    it('ensures PoseEngine reports null rhythm sync score prior to any movement event', () => {
+      const engine = new PoseEngine();
+      expect(engine.lastSyncScore).toBeNull();
+      expect(engine.getAverageSyncScore()).toBeNull(); // Must be null, never fabricate 85!
+    });
+
+    it('ensures PoseEngine reset restores sync score to null and NO_DATA state', () => {
+      const engine = new PoseEngine();
+      engine.lastSyncScore = 92;
+      engine.recentSyncScores.push(92);
+      expect(engine.getAverageSyncScore()).toBe(92);
+
+      engine.reset();
+      expect(engine.lastSyncScore).toBeNull();
+      expect(engine.getAverageSyncScore()).toBeNull();
+      expect(engine.lastPhase).toBe('NO_DATA');
+    });
+
+    it('evaluates anticipatory steps before upcoming beat using beat projection', () => {
+      const sync = new NuroSync(null, 60); // beatPeriod = 1.0s, tolerance = 200ms
+      sync.recordBeat(1.0); // only past beat recorded
+      // Event occurs at 1.960s (anticipating beat 2.0s by 40ms)
+      const res = sync.evaluateStep(1.960);
+      expect(res.timingErrorMs).toBe(40);
+      expect(res.syncScore).toBe(80);
+      expect(res.isSynchronized).toBe(true);
     });
   });
 });

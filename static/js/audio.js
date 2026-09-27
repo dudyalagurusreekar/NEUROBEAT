@@ -21,16 +21,25 @@ class NeuroAudioEngine {
         this.recentBeats = [];
         this.lastBeatTime = performance.now();
         
-        // Voice detection properties
-        this.microphone = null;
-        this.voiceAnalyzer = null;
+        // Voice detection & acoustic syllable tracking properties
+        this.microphoneStream = null;
+        this.voiceAudioContext = null;
+        this.voiceAnalyserNode = null;
+        this.voiceDataArray = null;
         this.voiceDetectionActive = false;
         this.voiceVolume = 0;
-        this.voiceFrequency = 0;
+        this.ambientNoise = 0.005;
+        this.isVocalizing = false;
+        this.lastOnsetMs = 0;
         this.lastVoiceTime = 0;
-        this.voiceRhythm = [];
-        this.expectedBeatTime = 0;
+        this.vocalEventsCount = 0;
+        this.vocalCadenceSpm = 0;
+        this.recentVocalIntervals = [];
+        this.recentVoiceScores = [];
+        this.lastVoiceTimingErrorMs = 0;
         this.voiceSyncAccuracy = 0;
+        this.voiceMonitoringAnimId = null;
+        this.onVocalOnsetCallback = null;
     }
 
     async initialize() {
@@ -74,9 +83,6 @@ class NeuroAudioEngine {
             // Create transport loop
             this.setupLoop();
 
-            // Initialize voice detection
-            await this.initializeVoiceDetection();
-
             return true;
         } catch (error) {
             console.error('Failed to initialize audio:', error);
@@ -85,108 +91,188 @@ class NeuroAudioEngine {
     }
 
     async initializeVoiceDetection() {
+        if (this.voiceDetectionActive && this.voiceAnalyserNode) {
+            return true;
+        }
+
         try {
-            // Request microphone permission
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            console.log('Microphone access granted');
+            let stream = null;
+            try {
+                // Request microphone permission with noise suppression
+                stream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    }
+                });
+            } catch (constraintErr) {
+                console.warn('[AUDIO] Detailed audio constraints failed, trying basic audio: true', constraintErr);
+                stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            }
+            console.log('[AUDIO] Microphone stream access granted');
+            this.microphoneStream = stream;
 
-            // Create microphone input using Tone.js
-            this.microphone = new Tone.UserMedia();
-            await this.microphone.open();
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            if (!this.voiceAudioContext || this.voiceAudioContext.state === 'closed') {
+                this.voiceAudioContext = new AudioContextClass();
+            }
+            if (this.voiceAudioContext.state === 'suspended') {
+                await this.voiceAudioContext.resume();
+            }
 
-            // Create voice analyzer for frequency and volume detection
-            this.voiceAnalyzer = new Tone.Analyser('waveform', 1024);
-            this.microphone.connect(this.voiceAnalyzer);
+            const source = this.voiceAudioContext.createMediaStreamSource(stream);
+            this.voiceAnalyserNode = this.voiceAudioContext.createAnalyser();
+            this.voiceAnalyserNode.fftSize = 1024;
+            this.voiceAnalyserNode.smoothingTimeConstant = 0.2;
+            source.connect(this.voiceAnalyserNode);
 
-            // Start voice monitoring
+            this.voiceDataArray = new Float32Array(this.voiceAnalyserNode.fftSize);
+            this.voiceDetectionActive = true;
+
+            // Start vocal syllable monitoring
             this.startVoiceMonitoring();
 
             return true;
         } catch (error) {
-            console.error('Failed to initialize voice detection:', error);
-            console.warn('Voice detection disabled - continuing without microphone');
+            console.warn('[AUDIO] Voice detection disabled - continuing without microphone:', error);
+            this.voiceDetectionActive = false;
             return false;
         }
     }
 
     startVoiceMonitoring() {
-        if (!this.voiceAnalyzer) return;
-
+        if (!this.voiceAnalyserNode || !this.voiceDataArray) return;
         this.voiceDetectionActive = true;
-        
+
         const analyzeVoice = () => {
-            if (!this.voiceDetectionActive) return;
+            if (!this.voiceDetectionActive || !this.voiceAnalyserNode) return;
 
-            const waveform = this.voiceAnalyzer.getValue();
-            
-            // Calculate voice volume (RMS)
-            let sum = 0;
-            for (let i = 0; i < waveform.length; i++) {
-                sum += waveform[i] * waveform[i];
+            this.voiceAnalyserNode.getFloatTimeDomainData(this.voiceDataArray);
+
+            // Compute true RMS energy
+            let sumSquares = 0;
+            for (let i = 0; i < this.voiceDataArray.length; i++) {
+                const sample = this.voiceDataArray[i];
+                sumSquares += sample * sample;
             }
-            this.voiceVolume = Math.sqrt(sum / waveform.length);
+            const rms = Math.sqrt(sumSquares / this.voiceDataArray.length);
+            this.voiceVolume = rms;
 
-            // Detect voice activity (threshold-based)
-            const voiceThreshold = 0.01;
-            if (this.voiceVolume > voiceThreshold) {
-                const currentTime = Tone.now();
-                this.lastVoiceTime = currentTime;
-                
-                // Record voice timing for rhythm analysis
-                this.voiceRhythm.push(currentTime);
-                
-                // Keep only recent voice events (last 10 seconds)
-                this.voiceRhythm = this.voiceRhythm.filter(time => 
-                    currentTime - time < 10
-                );
+            const nowMs = performance.now();
 
-                // Calculate synchronization accuracy
-                this.calculateVoiceSyncAccuracy();
+            // Track ambient noise floor when quiet
+            if (!this.isVocalizing) {
+                this.ambientNoise = 0.98 * this.ambientNoise + 0.02 * rms;
+            }
+            // Dynamic threshold: well above ambient background noise
+            const threshold = Math.max(0.015, this.ambientNoise * 2.5 + 0.010);
+
+            // Rising edge: Vocal syllable onset detection (minimum 180ms refractory debounce)
+            if (rms > threshold && !this.isVocalizing && (nowMs - this.lastOnsetMs) > 180) {
+                this.isVocalizing = true;
+                const prevOnset = this.lastOnsetMs;
+                this.lastOnsetMs = nowMs;
+                this.lastVoiceTime = nowMs;
+                this.vocalEventsCount++;
+
+                // Track syllable cadence (SPM = Syllables Per Minute)
+                if (prevOnset > 0) {
+                    const intervalMs = nowMs - prevOnset;
+                    if (intervalMs >= 180 && intervalMs <= 3000) {
+                        this.recentVocalIntervals.push(intervalMs);
+                        if (this.recentVocalIntervals.length > 10) this.recentVocalIntervals.shift();
+                        const meanInterval = this.recentVocalIntervals.reduce((a, b) => a + b, 0) / this.recentVocalIntervals.length;
+                        this.vocalCadenceSpm = Math.round(60000 / meanInterval);
+                    }
+                }
+
+                // Deterministic synchronization against rhythmic metronome beat
+                const nearestBeat = this.getNearestBeatTimestamp(nowMs);
+                const timingErrorMs = Math.round(Math.abs(nowMs - nearestBeat));
+                const signedErrorMs = Math.round(nowMs - nearestBeat);
+                this.lastVoiceTimingErrorMs = timingErrorMs;
+
+                // Dynamic beat tolerance: 20% of beat interval (60000 / BPM * 0.20)
+                const currentBpm = (this.bpm && this.bpm > 0) ? this.bpm : 60;
+                const toleranceMs = (60000.0 / currentBpm) * 0.20;
+                const instantScore = Math.max(0, Math.min(100, Math.round(100 * (1 - timingErrorMs / toleranceMs))));
+
+                this.recentVoiceScores.push(instantScore);
+                if (this.recentVoiceScores.length > 20) this.recentVoiceScores.shift();
+                this.voiceSyncAccuracy = Math.round(this.recentVoiceScores.reduce((a, b) => a + b, 0) / this.recentVoiceScores.length);
+
+                // Notify callback for visual animations or recording
+                if (typeof this.onVocalOnsetCallback === 'function') {
+                    try {
+                        this.onVocalOnsetCallback({
+                            timestamp: nowMs,
+                            timingErrorMs,
+                            signedErrorMs,
+                            score: instantScore,
+                            averageScore: this.voiceSyncAccuracy,
+                            cadence: this.vocalCadenceSpm || currentBpm,
+                            count: this.vocalEventsCount
+                        });
+                    } catch (e) {
+                        console.warn('[VOICE_CALLBACK_ERR]', e);
+                    }
+                }
+            } else if ((rms < threshold * 0.65 && (nowMs - this.lastOnsetMs) > 120) || (nowMs - this.lastOnsetMs) > 750) {
+                // Falling edge or max utterance duration: Reset vocalizing flag for next syllable
+                this.isVocalizing = false;
             }
 
-            requestAnimationFrame(analyzeVoice);
+            this.voiceMonitoringAnimId = requestAnimationFrame(analyzeVoice);
         };
 
-        analyzeVoice();
-    }
-
-    calculateVoiceSyncAccuracy() {
-        if (this.voiceRhythm.length < 2) return;
-
-        const beatInterval = 60 / this.bpm; // seconds per beat
-        const recentVoices = this.voiceRhythm.slice(-5); // Last 5 voice events
-        
-        let totalDeviation = 0;
-        let validComparisons = 0;
-
-        for (let i = 1; i < recentVoices.length; i++) {
-            const actualInterval = recentVoices[i] - recentVoices[i-1];
-            const deviation = Math.abs(actualInterval - beatInterval);
-            
-            if (deviation < beatInterval * 0.5) { // Only count if within reasonable range
-                totalDeviation += deviation;
-                validComparisons++;
-            }
-        }
-
-        if (validComparisons > 0) {
-            const avgDeviation = totalDeviation / validComparisons;
-            const maxDeviation = beatInterval * 0.2; // 20% of beat interval
-            this.voiceSyncAccuracy = Math.max(0, 100 * (1 - avgDeviation / maxDeviation));
-        }
+        if (this.voiceMonitoringAnimId) cancelAnimationFrame(this.voiceMonitoringAnimId);
+        this.voiceMonitoringAnimId = requestAnimationFrame(analyzeVoice);
     }
 
     getVoiceSyncAccuracy() {
+        if (this.vocalEventsCount === 0 || this.recentVoiceScores.length === 0) {
+            return 0;
+        }
         return Math.round(this.voiceSyncAccuracy);
     }
 
+    getVocalCadence() {
+        if (this.vocalEventsCount < 2 || !this.vocalCadenceSpm) {
+            return 0;
+        }
+        return this.vocalCadenceSpm;
+    }
+
+    getVocalCount() {
+        return this.vocalEventsCount;
+    }
+
     isVoiceActive() {
-        const currentTime = Tone.now();
-        return (currentTime - this.lastVoiceTime) < 1.0; // Voice active within last second
+        const nowMs = performance.now();
+        return (nowMs - this.lastVoiceTime) < 1200;
     }
 
     getVoiceVolume() {
-        return this.voiceVolume;
+        return this.voiceVolume || 0;
+    }
+
+    setOnVocalOnsetCallback(callback) {
+        this.onVocalOnsetCallback = callback;
+    }
+
+    stopVoiceMonitoring() {
+        this.voiceDetectionActive = false;
+        if (this.voiceMonitoringAnimId) {
+            cancelAnimationFrame(this.voiceMonitoringAnimId);
+            this.voiceMonitoringAnimId = null;
+        }
+        if (this.microphoneStream) {
+            try {
+                this.microphoneStream.getTracks().forEach(track => track.stop());
+            } catch (e) {}
+                this.microphoneStream = null;
+        }
     }
 
     setupLoop() {
@@ -220,8 +306,6 @@ class NeuroAudioEngine {
             const beatNow = performance.now();
             this.lastBeatTime = beatNow;
             this.recentBeats.push(beatNow);
-            if (!this.sessionBeatTimestamps) this.sessionBeatTimestamps = [];
-            this.sessionBeatTimestamps.push(beatNow);
             if (this.recentBeats.length > 60) this.recentBeats.shift();
 
             // Record beat timestamp in NuroSync
@@ -238,19 +322,19 @@ class NeuroAudioEngine {
         }, "4n"); // Quarter note intervals
     }
 
-    getBeatTimestamps() {
-        return this.sessionBeatTimestamps ? [...this.sessionBeatTimestamps] : [];
-    }
-
-    clearBeatTimestamps() {
-        this.sessionBeatTimestamps = [];
-    }
-
     getNearestBeatTimestamp(timestampMs) {
         const t = timestampMs || performance.now();
+        const currentBpm = (this.bpm && this.bpm > 0) ? this.bpm : 60;
+        const beatPeriodMs = 60000.0 / currentBpm;
+
         if (!this.recentBeats || this.recentBeats.length === 0) {
-            return this.lastBeatTime || t;
+            if (this.lastBeatTime) {
+                const elapsed = t - this.lastBeatTime;
+                return this.lastBeatTime + Math.round(elapsed / beatPeriodMs) * beatPeriodMs;
+            }
+            return t;
         }
+
         let nearest = this.recentBeats[0];
         let minDiff = Math.abs(t - nearest);
         for (let i = 1; i < this.recentBeats.length; i++) {
@@ -260,6 +344,19 @@ class NeuroAudioEngine {
                 nearest = this.recentBeats[i];
             }
         }
+
+        // Project upcoming beat from the latest recorded beat (handles anticipation of next beat)
+        const lastRecorded = this.recentBeats[this.recentBeats.length - 1];
+        if (t > lastRecorded) {
+            const cycles = Math.max(1, Math.round((t - lastRecorded) / beatPeriodMs));
+            const projected = lastRecorded + cycles * beatPeriodMs;
+            const projDiff = Math.abs(t - projected);
+            if (projDiff < minDiff) {
+                nearest = projected;
+                minDiff = projDiff;
+            }
+        }
+
         return nearest;
     }
 
@@ -286,6 +383,7 @@ class NeuroAudioEngine {
     stop() {
         this.isPlaying = false;
         this.isStarted = false;
+        this.stopVoiceMonitoring();
         try {
             if (typeof Tone !== 'undefined' && Tone.Transport) {
                 Tone.Transport.stop();
@@ -535,7 +633,7 @@ function getSoundConfig(soundType) {
     return soundConfigs[soundType] || soundConfigs['metronome'];
 }
 
-// Beat visualization trigger
+let beatVisualizationCount = 0;
 function triggerBeatVisualization() {
     const beatIndicator = document.getElementById('beatIndicator');
     const beatVisualizer = document.getElementById('beatVisualizer');
@@ -560,6 +658,24 @@ function triggerBeatVisualization() {
             syllablePrompt.style.transform = 'scale(1.0)';
             syllablePrompt.style.color = '#00e5ff';
         }, 120);
+
+        // Sequentially pulse individual syllable targets (0, 1, 2, 3)
+        const sylIndex = beatVisualizationCount % 4;
+        beatVisualizationCount++;
+        const targetSyl = document.getElementById(`syl_${sylIndex}`);
+        if (targetSyl) {
+            targetSyl.style.opacity = '1.0';
+            targetSyl.style.textDecoration = 'underline';
+            for (let i = 0; i < 4; i++) {
+                if (i !== sylIndex) {
+                    const other = document.getElementById(`syl_${i}`);
+                    if (other) {
+                        other.style.opacity = '0.6';
+                        other.style.textDecoration = 'none';
+                    }
+                }
+            }
+        }
     }
 }
 

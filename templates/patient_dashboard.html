@@ -237,7 +237,7 @@
             <div class="card-body">
                 {% if recent_sessions %}
                     <div class="table-responsive">
-                        <table class="table table-hover align-middle">
+                        <table class="table table-hover">
                             <thead>
                                 <tr>
                                     <th>Date</th>
@@ -245,7 +245,6 @@
                                     <th>Duration</th>
                                     <th>Accuracy</th>
                                     <th>BPM Range</th>
-                                    <th class="text-end">Report</th>
                                 </tr>
                             </thead>
                             <tbody id="recentSessionsTableBody">
@@ -278,19 +277,10 @@
                                         {% elif not session.completed %}
                                             <span class="text-muted small">In Progress</span>
                                         {% else %}
-                                            <span class="badge bg-secondary" title="Insufficient movement data">&mdash;</span>
+                                            <span class="text-muted small">Completed</span>
                                         {% endif %}
                                     </td>
-                                    <td>{{ session.initial_bpm|round|int }} - {{ session.final_bpm|round|int if session.final_bpm else session.initial_bpm|round|int }} BPM</td>
-                                    <td class="text-end">
-                                        {% if session.completed %}
-                                            <a href="{{ url_for('session_report_view', session_id=session.id) }}" class="btn btn-sm btn-outline-info">
-                                                <i data-feather="file-text" style="width: 12px; height: 12px;" class="me-1"></i> View Report
-                                            </a>
-                                        {% else %}
-                                            <span class="text-muted small">&mdash;</span>
-                                        {% endif %}
-                                    </td>
+                                    <td>{{ session.initial_bpm|round|int }} - {{ session.final_bpm|round|int if session.final_bpm else session.initial_bpm|round|int }}</td>
                                 </tr>
                                 {% endfor %}
                             </tbody>
@@ -520,16 +510,7 @@ async function refreshRecentSessions() {
             } else if (!s.completed) {
                 accHtml = '<span class="text-muted small">In Progress</span>';
             } else {
-                accHtml = '<span class="badge bg-secondary" title="Insufficient movement data">&mdash;</span>';
-            }
-
-            let reportHtml = '';
-            if (s.completed) {
-                reportHtml = `<a href="/session/${s.id}/report" class="btn btn-sm btn-outline-info">
-                    <i data-feather="file-text" style="width: 12px; height: 12px;" class="me-1"></i> View Report
-                </a>`;
-            } else {
-                reportHtml = '<span class="text-muted small">&mdash;</span>';
+                accHtml = '<span class="text-muted small">Completed</span>';
             }
 
             rowsHtml += `<tr>
@@ -537,8 +518,7 @@ async function refreshRecentSessions() {
                 <td><span class="badge" style="background: rgba(1, 170, 197, 0.12); color: #01aac5; border: 1px solid rgba(1, 170, 197, 0.3);">${s.type}</span></td>
                 <td>${durationHtml}</td>
                 <td>${accHtml}</td>
-                <td>${s.bpm_range} BPM</td>
-                <td class="text-end">${reportHtml}</td>
+                <td>${s.bpm_range}</td>
             </tr>`;
         });
         tbody.innerHTML = rowsHtml;

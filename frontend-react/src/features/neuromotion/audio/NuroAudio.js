@@ -19,6 +19,8 @@ export class NuroAudio {
     this.timeData = null;
     this.frequencyData = null;
 
+    this.currentBpm = 60;
+    this.customTolerance = null;
     this.lastBeatTime = 0;
     this.beatHistory = []; // generated or detected beat timestamps in seconds
     this.lastFeatureSnapshot = {
@@ -28,6 +30,41 @@ export class NuroAudio {
       isBeatCandidate: false,
       timestamp: 0,
     };
+  }
+
+  /**
+   * Updates target tempo for dynamic tolerance calculations
+   * @param {number} bpm
+   */
+  setBpm(bpm) {
+    if (Number.isFinite(bpm) && bpm > 0) {
+      this.currentBpm = bpm;
+    }
+  }
+
+  /**
+   * Sets custom override tolerance window or resets to dynamic
+   * @param {number|null} toleranceMs
+   */
+  setTolerance(toleranceMs) {
+    if (Number.isFinite(toleranceMs) && toleranceMs > 0) {
+      this.customTolerance = toleranceMs;
+    } else if (toleranceMs === null) {
+      this.customTolerance = null;
+    }
+  }
+
+  /**
+   * Computes beat-relative sync tolerance (20% of beat interval)
+   * e.g., 60 BPM -> 1000ms period -> 200ms tolerance
+   *       120 BPM -> 500ms period -> 100ms tolerance
+   * @param {number} [bpm]
+   * @returns {number} tolerance in ms
+   */
+  calculateDynamicTolerance(bpm) {
+    const validBpm = (Number.isFinite(bpm) && bpm > 0) ? bpm : (this.currentBpm || 60);
+    const beatPeriodMs = 60000.0 / validBpm;
+    return Number((beatPeriodMs * 0.20).toFixed(1));
   }
 
   /**
@@ -143,8 +180,10 @@ export class NuroAudio {
 
   /**
    * Evaluates synchronization between a movement event and the rhythm beats
+   * Uses beat-relative dynamic tolerance derived from BPM unless custom toleranceMs is provided.
    * @param {number} movementTimestamp - in seconds
-   * @param {number} [toleranceMs=250] - Sync window tolerance
+   * @param {number|null} [toleranceMs=null] - Sync window tolerance in ms
+   * @param {number|null} [bpm=null] - Current target tempo in BPM
    * @returns {{
    *   timingErrorMs: number,
    *   syncScore: number,
@@ -152,13 +191,19 @@ export class NuroAudio {
    *   phase: 'ON_BEAT' | 'EARLY' | 'LATE'
    * }}
    */
-  alignMovementToBeat(movementTimestamp, toleranceMs = 250) {
+  alignMovementToBeat(movementTimestamp, toleranceMs = null, bpm = null) {
+    const effectiveBpm = (Number.isFinite(bpm) && bpm > 0) ? bpm : (this.currentBpm || 60);
+    const effectiveTolerance = (Number.isFinite(toleranceMs) && toleranceMs > 0)
+      ? toleranceMs
+      : (this.customTolerance !== null ? this.customTolerance : this.calculateDynamicTolerance(effectiveBpm));
+
     if (this.beatHistory.length === 0) {
       return {
-        timingErrorMs: 0,
-        syncScore: 85,
-        isSynchronized: true,
-        phase: 'ON_BEAT',
+        valid: false,
+        timingErrorMs: null,
+        syncScore: null,
+        isSynchronized: false,
+        phase: 'NO_DATA',
       };
     }
 
@@ -176,8 +221,8 @@ export class NuroAudio {
     }
 
     const timingErrorMs = Math.round(minAbsDiff * 1000);
-    const score = Math.max(0, Math.min(100, Math.round(100 * (1 - timingErrorMs / toleranceMs))));
-    const isSynchronized = timingErrorMs <= toleranceMs;
+    const score = Math.max(0, Math.min(100, Math.round(100 * (1 - timingErrorMs / effectiveTolerance))));
+    const isSynchronized = timingErrorMs <= effectiveTolerance;
 
     let phase = 'ON_BEAT';
     if (timingErrorMs > 25) {
@@ -185,6 +230,7 @@ export class NuroAudio {
     }
 
     return {
+      valid: true,
       timingErrorMs,
       syncScore: score,
       isSynchronized,

@@ -58,6 +58,12 @@ export class PoseEngine {
     this.lastFpsCalcTime = performance.now();
     this.lastVideoTime = 0;
 
+    // Rhythmic Synchronization Tracking - initialized to null until input events are evaluated
+    this.lastSyncScore = null;
+    this.lastTimingErrorMs = null;
+    this.lastPhase = 'NO_DATA';
+    this.recentSyncScores = [];
+
     // Callbacks
     this.onMovementEventCallbacks = new Set();
     this.onMetricsCallbacks = new Set();
@@ -71,6 +77,29 @@ export class PoseEngine {
         try { cb(packet); } catch (e) { console.warn(e); }
       });
     });
+  }
+
+  /**
+   * Sets target BPM and updates audio alignment reference
+   * @param {number} bpm
+   */
+  setTargetBpm(bpm) {
+    if (Number.isFinite(bpm) && bpm > 0) {
+      this.targetBpm = bpm;
+      if (this.audio && typeof this.audio.setBpm === 'function') {
+        this.audio.setBpm(bpm);
+      }
+    }
+  }
+
+  /**
+   * Computes rolling average rhythm synchronization score
+   * @returns {number}
+   */
+  getAverageSyncScore() {
+    if (this.recentSyncScores.length === 0) return 0;
+    const sum = this.recentSyncScores.reduce((acc, v) => acc + v, 0);
+    return Math.round(sum / this.recentSyncScores.length);
   }
 
   // Event Subscription methods
@@ -320,17 +349,30 @@ export class PoseEngine {
         this.temporalFilter.reset();
       }
 
-      // 7. Process Step Events & Cadence
+      // 7. Process Step, Tap, and Voice Events & Cadence
+      let currentFrameSyncResult = null;
       for (const ev of detectedEvents) {
-        if (ev.type.includes('STEP')) {
+        if (ev.type.includes('STEP') || ev.type.includes('TAP') || ev.type.includes('VOICE')) {
           this.cadenceEstimator.recordStep(ev);
           this.qualityEvaluator.recordStep(ev);
 
-          // Multimodal Audio Alignment
-          const alignment = this.audio.alignMovementToBeat(ev.timestamp);
-          ev.syncScore = alignment.syncScore;
-          ev.timingErrorMs = alignment.timingErrorMs;
-          ev.phase = alignment.phase;
+          // Multimodal Audio Alignment with dynamic beat-relative tolerance
+          const alignment = this.audio.alignMovementToBeat(ev.timestamp, null, this.targetBpm);
+          if (alignment && alignment.valid !== false && alignment.syncScore !== null) {
+            ev.syncScore = alignment.syncScore;
+            ev.timingErrorMs = alignment.timingErrorMs;
+            ev.phase = alignment.phase;
+            ev.matched_beat_timestamp = alignment.matchedBeatTimestamp || null;
+
+            this.lastSyncScore = alignment.syncScore;
+            this.lastTimingErrorMs = alignment.timingErrorMs;
+            this.lastPhase = alignment.phase;
+            this.recentSyncScores.push(alignment.syncScore);
+            if (this.recentSyncScores.length > 30) {
+              this.recentSyncScores.shift();
+            }
+            currentFrameSyncResult = alignment;
+          }
 
           // Dispatch to external listeners
           this.onMovementEventCallbacks.forEach((cb) => {
@@ -376,8 +418,10 @@ export class PoseEngine {
         },
         sync: {
           target_bpm: this.targetBpm,
-          score: qualityScore.qualityScore,
-          timing_error_ms: detectedEvents.length > 0 ? (detectedEvents[0].timingErrorMs ?? 20) : 0,
+          valid: currentFrameSyncResult !== null,
+          score: currentFrameSyncResult ? currentFrameSyncResult.syncScore : null,
+          timing_error_ms: currentFrameSyncResult ? currentFrameSyncResult.timingErrorMs : null,
+          phase: currentFrameSyncResult ? currentFrameSyncResult.phase : this.lastPhase,
         },
         audio: {
           level: audioFeatures.level,
@@ -417,6 +461,14 @@ export class PoseEngine {
             cadence: cadenceMetrics,
             balance: balanceMetrics,
             quality: qualityScore,
+            sync: {
+              targetBpm: this.targetBpm,
+              syncScore: this.lastSyncScore,
+              timingErrorMs: this.lastTimingErrorMs,
+              phase: this.lastPhase,
+              averageSync: this.getAverageSyncScore(),
+              valid: this.lastSyncScore !== null,
+            },
             audio: audioFeatures,
             diagnostics: {
               cameraFps: Number(this.cameraFps.toFixed(1)),
@@ -475,10 +527,18 @@ export class PoseEngine {
       this.cadenceEstimator.recordStep(stepEvent);
       this.qualityEvaluator.recordStep(stepEvent);
 
-      const alignment = this.audio.alignMovementToBeat(stepEvent.timestamp);
+      const alignment = this.audio.alignMovementToBeat(stepEvent.timestamp, null, targetBpm);
       stepEvent.syncScore = alignment.syncScore;
       stepEvent.timingErrorMs = alignment.timingErrorMs;
       stepEvent.phase = alignment.phase;
+
+      this.lastSyncScore = alignment.syncScore;
+      this.lastTimingErrorMs = alignment.timingErrorMs;
+      this.lastPhase = alignment.phase;
+      this.recentSyncScores.push(alignment.syncScore);
+      if (this.recentSyncScores.length > 30) {
+        this.recentSyncScores.shift();
+      }
 
       this.onMovementEventCallbacks.forEach((cb) => {
         try { cb(stepEvent); } catch (e) { console.warn(e); }
@@ -504,7 +564,7 @@ export class PoseEngine {
           right_steps: cadence.rightSteps,
           balance: balance.balanceScore,
         },
-        sync: { target_bpm: targetBpm, score: quality.qualityScore, timing_error_ms: 18 },
+        sync: { target_bpm: targetBpm, valid: true, score: alignment.syncScore, timing_error_ms: alignment.timingErrorMs, phase: alignment.phase },
         audio: { level: 0.08, activity: false, confidence: 0.8 },
         performance: { camera_fps: 30, pose_fps: 30, inference_latency_ms: 8, dropped_frames: 0 },
       });
@@ -515,6 +575,13 @@ export class PoseEngine {
             cadence,
             balance,
             quality,
+            sync: {
+              targetBpm,
+              syncScore: alignment.syncScore,
+              timingErrorMs: alignment.timingErrorMs,
+              phase: alignment.phase,
+              averageSync: this.getAverageSyncScore(),
+            },
             audio: { level: 0.05, activity: false },
             diagnostics: {
               cameraFps: 30.0,
@@ -532,6 +599,12 @@ export class PoseEngine {
     }, intervalMs);
   }
 
+  getAverageSyncScore() {
+    if (!this.recentSyncScores || this.recentSyncScores.length === 0) return null;
+    const sum = this.recentSyncScores.reduce((a, b) => a + b, 0);
+    return Math.round(sum / this.recentSyncScores.length);
+  }
+
   pause() {
     this.isPaused = true;
   }
@@ -547,6 +620,10 @@ export class PoseEngine {
     this.cadenceEstimator.reset();
     this.qualityEvaluator.reset();
     this.telemetryBuffer.clear();
+    this.lastSyncScore = null;
+    this.lastTimingErrorMs = null;
+    this.lastPhase = 'NO_DATA';
+    this.recentSyncScores = [];
     this.droppedFramesCount = 0;
   }
 

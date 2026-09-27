@@ -62,8 +62,7 @@ Current Session Telemetry:
 - Activity Type: {activity_type}
 - Duration: {duration_seconds} seconds
 - Cadence: Initial={initial_bpm} BPM, Final={final_bpm} BPM
-- Measurement Status: {measurement_status}
-- Rhythm Synchronization Score: {accuracy_score}
+- Rhythm Synchronization Score: {accuracy_score}%
 - Total Movements / Steps: {movement_count}
 
 Generate a comprehensive clinical report formatted STRICTLY as JSON with these keys:
@@ -87,7 +86,7 @@ Generate a comprehensive clinical report formatted STRICTLY as JSON with these k
   ],
   "soap": {{
     "subjective": "Patient engagement and exertion tolerance based on duration and completed effort",
-    "objective": "Verified telemetry: duration, initial/final BPM, accuracy, movement count",
+    "objective": "Verified telemetry: duration, initial/final BPM, accuracy %, movement count",
     "assessment": "Clinical assessment of auditory-motor entrainment, fatigue indicators, and cadence stability",
     "plan": "Specific next session cadence targets, resting intervals, and exercise focus"
   }}
@@ -96,8 +95,6 @@ Generate a comprehensive clinical report formatted STRICTLY as JSON with these k
 STRICT RULES:
 - Never diagnose medical conditions or prescribe medications.
 - Base all statements strictly on the supplied quantitative measurements.
-- CRITICAL DATA INTEGRITY: Never infer or invent a performance metric when the corresponding value is null or the measurement status is INSUFFICIENT_DATA.
-- If measurement_status is INSUFFICIENT_DATA, explicitly state in the summary: 'Insufficient movement data was captured to calculate synchronization accuracy.' and do NOT claim clinical entrainment or improvement.
 - Return ONLY valid JSON.""",
 
     "progress_interpretation": """You are a clinical biomechanist evaluating longitudinal progress in neurorehabilitation.

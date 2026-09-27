@@ -276,7 +276,8 @@ describe('Movement Intelligence & Rhythm Intelligence Test Suite (P1)', () => {
     expect(Number.isFinite(state.movement.rom)).toBe(true);
     expect(Number.isFinite(state.movement.velocity)).toBe(true);
     expect(Number.isFinite(state.movement.quality)).toBe(true);
-    expect(Number.isFinite(state.rhythm.sync)).toBe(true);
+    expect(state.rhythm.sync === null || Number.isFinite(state.rhythm.sync)).toBe(true);
+    expect(Number.isNaN(state.rhythm.sync)).toBe(false);
   });
 
   // ADVERSARIAL TEST 2: Confidence boundary sweep

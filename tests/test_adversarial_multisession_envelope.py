@@ -82,29 +82,6 @@ class TestAdversarialMultiSessionEnvelope(unittest.TestCase):
             PatientPerformanceEnvelope.query.filter_by(patient_id=self.patient_id).delete()
             db.session.commit()
 
-    @staticmethod
-    def _make_telemetry(bpm: float, accuracy: float, step_count: int = 10, confidence: float = 0.95):
-        interval_ms = 60000.0 / bpm
-        tolerance_ms = min(interval_ms * 0.25, 250.0)
-        error_ms = tolerance_ms * (1.0 - (accuracy / 100.0))
-        beat_timestamps = [int(1000 + i * interval_ms) for i in range(step_count)]
-        movement_events = []
-        for i, bt in enumerate(beat_timestamps):
-            side = "LEFT" if i % 2 == 0 else "RIGHT"
-            movement_events.append({
-                "timestamp_ms": int(bt + error_ms),
-                "type": "STEP",
-                "side": side,
-                "confidence": confidence
-            })
-        return {
-            "valid_pose_frames": 100,
-            "total_pose_frames": 100,
-            "pose_confidence": confidence,
-            "beat_timestamps_ms": beat_timestamps,
-            "movement_events": movement_events
-        }
-
     def test_ten_session_progression_envelope(self):
         """
         Adversarial Test (Section 14):
@@ -169,8 +146,8 @@ class TestAdversarialMultiSessionEnvelope(unittest.TestCase):
             })
             self.assertEqual(out_resp.status_code, 201)
 
-            # Complete session with verified movement telemetry
-            comp_payload = {
+            # Complete session
+            comp_resp = self.client.post(f'/session/{session_id}/complete', json={
                 'duration': 180,
                 'final_bpm': bpm,
                 'accuracy_score': acc,
@@ -180,9 +157,7 @@ class TestAdversarialMultiSessionEnvelope(unittest.TestCase):
                     'averageConfidence': 0.92,
                     'bestTempo': bpm
                 }
-            }
-            comp_payload.update(self._make_telemetry(bpm, acc))
-            comp_resp = self.client.post(f'/session/{session_id}/complete', json=comp_payload)
+            })
             self.assertEqual(comp_resp.status_code, 200)
 
             # Fetch envelope returned or via API
@@ -232,9 +207,9 @@ class TestAdversarialMultiSessionEnvelope(unittest.TestCase):
             'session_type': exercise, 'initial_bpm': 60, 'target_bpm': 64
         })
         s1_id = resp1.get_json()['session_id']
-        payload1 = {'duration': 180, 'final_bpm': 64, 'accuracy_score': 85.0}
-        payload1.update(self._make_telemetry(64, 85.0))
-        self.client.post(f'/session/{s1_id}/complete', json=payload1)
+        self.client.post(f'/session/{s1_id}/complete', json={
+            'duration': 180, 'final_bpm': 64, 'accuracy_score': 85.0
+        })
 
         with app.app_context():
             env_before = PatientPerformanceEnvelope.query.filter_by(

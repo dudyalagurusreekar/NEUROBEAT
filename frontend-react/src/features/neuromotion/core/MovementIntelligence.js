@@ -105,8 +105,8 @@ export class MovementIntelligence {
         quality: 0.85
       },
       rhythm: {
-        sync: 0.85,
-        timingErrorMs: 0,
+        sync: null,
+        timingErrorMs: null,
         missedBeats: 0,
         averageErrorMs: 0,
         timingVariance: 0,
@@ -560,8 +560,15 @@ export class MovementIntelligence {
         }
       }
     } else {
-      // Synthetic phase reference aligned to modulo beat grid
-      nearestBeat = Math.round(timestampSec / beatPeriod) * beatPeriod;
+      // Cannot calculate synchronization without beat timestamps
+      return {
+        sync: null,
+        timingErrorMs: null,
+        missedBeats: this.missedBeatsCount,
+        averageErrorMs: 0,
+        timingVariance: 0,
+        successfulBeats: this.successfulBeatsCount
+      };
     }
 
     const timingErrorSec = nearestBeat !== null ? (timestampSec - nearestBeat) : 0;

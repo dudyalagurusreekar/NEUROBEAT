@@ -295,47 +295,98 @@
                     {% elif mode_config.key in ['speech_rhythm', 'melodic_intonation'] %}
                     <!-- Left Column: Speech Rhythm Studio (Microphone / Vocal Pacing - Camera Not Required) -->
                     <div class="col-lg-6">
-                        <div class="camera-card-wrapper d-flex flex-column justify-content-between h-100" style="min-height: 380px;">
+                        <div class="camera-card-wrapper d-flex flex-column justify-content-between h-100" style="min-height: 400px;">
                             <div>
                                 <div class="d-flex justify-content-between align-items-center mb-3">
                                     <span class="fw-semibold small text-theme-adaptive">
                                         <i data-feather="mic" class="me-1" style="width: 14px; height: 14px; color: #01aac5;"></i>
                                         Vocal Rhythm & Acoustic Studio
                                     </span>
-                                    <span class="badge" style="background: rgba(1, 170, 197, 0.15); color: #01aac5; border: 1px solid rgba(1, 170, 197, 0.3);">
-                                        Microphone Sensing
-                                    </span>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="badge" id="speechMicStatusBadge" style="background: rgba(1, 170, 197, 0.15); color: #01aac5; border: 1px solid rgba(1, 170, 197, 0.3);">
+                                            <i data-feather="mic-off" style="width: 12px; height: 12px; vertical-align: -1px; margin-right: 4px;"></i> Microphone Standby
+                                        </span>
+                                        <button type="button" class="btn btn-sm btn-outline-info py-1 px-2" id="btnConnectMic" style="font-size: 11px;" onclick="connectMicrophone()">
+                                            <i data-feather="mic" style="width: 12px; height: 12px; vertical-align: -1px; margin-right: 3px;"></i> Connect Mic
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Microphone Permission Alert Banner -->
+                                <div id="micAlertBanner" class="alert alert-warning py-2 px-3 small mb-3 align-items-center justify-content-between" style="display: none; border-radius: 8px;">
+                                    <div>
+                                        <i data-feather="alert-circle" class="me-1" style="width: 14px; height: 14px;"></i>
+                                        <span id="micAlertText">Microphone access needed for speech pacing.</span>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-primary ms-2" id="btnRequestMic" onclick="connectMicrophone()">
+                                        <i data-feather="mic" class="me-1" style="width: 12px; height: 12px;"></i> Allow Mic
+                                    </button>
                                 </div>
 
                                 <!-- Speech Pacing Prompt Display -->
-                                <div class="p-4 rounded-3 text-center mb-3" style="background: #041421; border: 1px solid rgba(1, 170, 197, 0.3); position: relative; overflow: hidden;">
-                                    <div class="text-uppercase tracking-wider small text-muted mb-2">Rhythmic Syllable Target</div>
-                                    <div id="speechSyllablePrompt" style="font-size: 2.2rem; font-weight: 800; letter-spacing: 4px; color: #00e5ff; transition: transform 0.1s ease, color 0.1s ease;">
-                                        TA &mdash; TA &mdash; TA &mdash; TA
+                                <div class="p-3 rounded-3 text-center mb-3" style="background: #041421; border: 1px solid rgba(1, 170, 197, 0.3); position: relative; overflow: hidden;">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <span class="text-uppercase tracking-wider small text-muted" style="font-size: 11px;">Rhythmic Syllable Target</span>
+                                        <button type="button" class="btn btn-xs btn-outline-info py-0 px-2" style="font-size: 10px;" onclick="cycleSyllablePrompt()">
+                                            <i data-feather="refresh-cw" style="width: 10px; height: 10px; vertical-align: -1px; margin-right: 2px;"></i> Cycle Phrase
+                                        </button>
                                     </div>
-                                    <div class="small text-muted mt-2" id="speechPromptSubtext">
-                                        Vocalize each syllable on the rhythmic metronome beat
+                                    <div id="speechSyllablePrompt" style="font-size: 2.2rem; font-weight: 800; letter-spacing: 4px; color: #00e5ff; transition: transform 0.1s ease, color 0.1s ease;">TA &mdash; TA &mdash; TA &mdash; TA</div>
+                                    <div class="small text-muted mt-2" id="speechPromptSubtext" style="font-size: 11px;">
+                                        Vocalize clearly on each metronome beat &bull; Watch the audio energy bar below
                                     </div>
                                 </div>
 
-                                <!-- Microphone Status & Live Audio Level -->
+                                <!-- Microphone Live Input Energy & VU Meter -->
                                 <div class="card p-3 mb-3 border-0" style="background: rgba(1, 170, 197, 0.06); border-radius: 8px;">
                                     <div class="d-flex justify-content-between align-items-center mb-2">
                                         <span class="small fw-semibold text-theme-adaptive">
                                             <i data-feather="volume-2" class="me-1" style="width: 13px; height: 13px; color: #01aac5;"></i>
-                                            Vocal Energy & Microphone Level:
+                                            Microphone Energy Level:
                                         </span>
-                                        <span class="badge bg-success" id="vocalStatusPill">
-                                            Microphone Active
-                                        </span>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <span class="badge bg-warning text-dark" id="vocalStatusPill" style="font-size: 11px;">
+                                                Mic Standby (Click Connect Mic)
+                                            </span>
+                                            <button type="button" class="btn btn-sm btn-outline-info py-0 px-2" id="btnConnectMicInline" style="font-size: 11px;" onclick="connectMicrophone()">
+                                                <i data-feather="mic" style="width: 11px; height: 11px;"></i> Test Mic
+                                            </button>
+                                        </div>
                                     </div>
-                                    <div style="height: 10px; background: rgba(0,0,0,0.15); border-radius: 6px; overflow: hidden;">
-                                        <div id="speechVolumeMeter" style="height: 100%; width: 0%; background: linear-gradient(90deg, #01aac5, #10b981); transition: width 0.08s ease;"></div>
+                                    <div style="height: 12px; background: rgba(0,0,0,0.25); border-radius: 6px; overflow: hidden; position: relative;">
+                                        <div id="speechVolumeMeter" style="height: 100%; width: 0%; background: linear-gradient(90deg, #01aac5 0%, #10b981 70%, #ef4444 100%); transition: width 0.06s ease;"></div>
+                                    </div>
+                                    <div class="d-flex justify-content-between mt-1 text-muted" style="font-size: 10px;">
+                                        <span>Quiet</span>
+                                        <span id="speechVolumeDbText">Input Level: 0%</span>
+                                        <span>Loud</span>
+                                    </div>
+                                </div>
+
+                                <!-- Live Real-Time Speech Metrics Strip -->
+                                <div class="row g-2 text-center mb-3">
+                                    <div class="col-4">
+                                        <div class="p-2 rounded" style="background: rgba(1, 170, 197, 0.08); border: 1px solid rgba(1, 170, 197, 0.15);">
+                                            <small class="text-muted d-block" style="font-size: 11px;">Syllables</small>
+                                            <strong class="text-theme-adaptive" id="vocalSyllablesCount" style="font-size: 1.15rem;">0</strong>
+                                        </div>
+                                    </div>
+                                    <div class="col-4">
+                                        <div class="p-2 rounded" style="background: rgba(1, 170, 197, 0.08); border: 1px solid rgba(1, 170, 197, 0.15);">
+                                            <small class="text-muted d-block" style="font-size: 11px;">Vocal Cadence</small>
+                                            <strong class="text-info" id="vocalCadenceDisplay" style="font-size: 1.15rem;">-- SPM</strong>
+                                        </div>
+                                    </div>
+                                    <div class="col-4">
+                                        <div class="p-2 rounded" style="background: rgba(1, 170, 197, 0.08); border: 1px solid rgba(1, 170, 197, 0.15);">
+                                            <small class="text-muted d-block" style="font-size: 11px;">Timing Offset</small>
+                                            <strong class="text-success" id="vocalTimingError" style="font-size: 1.15rem;">-- ms</strong>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
 
-                            <!-- Speech Articulation Summary -->
+                            <!-- Speech Articulation Summary Footer -->
                             <div class="d-flex justify-content-between align-items-center p-3 rounded" style="background: rgba(1, 170, 197, 0.08);">
                                 <div>
                                     <small class="text-muted d-block">Therapy Modality</small>
@@ -849,7 +900,7 @@ let tapState = {
     intertapMean: 0,
     intertapSd: 0,
     intertapCv: 0,
-    syncAccuracy: 100
+    syncAccuracy: 0
 };
 
 function handleFingerTap() {
@@ -885,7 +936,7 @@ function handleFingerTap() {
     let deltaMs = 0;
     if (window.nuroSync) {
         const syncEval = window.nuroSync.evaluateStep(now / 1000.0);
-        deltaMs = Math.round(Math.abs(syncEval.signed_error_ms));
+        deltaMs = Math.round(Math.abs(syncEval.signedErrorMs !== undefined ? syncEval.signedErrorMs : (syncEval.signed_error_ms || 0)));
         tapState.syncAccuracy = window.nuroSync.getRhythmAlignmentScore();
     } else {
         let nearestBeat = now;
@@ -895,8 +946,14 @@ function handleFingerTap() {
             nearestBeat = window.audioEngine.getNearestBeatTimestamp(now);
         }
         deltaMs = Math.round(Math.abs(now - nearestBeat));
-        const score = Math.max(0, Math.min(100, Math.round(100 - (deltaMs / 250) * 100)));
-        tapState.syncAccuracy = Math.round(tapState.syncAccuracy * 0.7 + score * 0.3);
+        const currentBpm = (sessionData && sessionData.currentBPM) ? sessionData.currentBPM : 60;
+        const toleranceMs = (60000.0 / currentBpm) * 0.20;
+        const score = Math.max(0, Math.min(100, Math.round(100 * (1 - deltaMs / toleranceMs))));
+        if (tapState.count === 1) {
+            tapState.syncAccuracy = score;
+        } else {
+            tapState.syncAccuracy = Math.round(tapState.syncAccuracy * 0.7 + score * 0.3);
+        }
     }
     sessionData.accuracyScore = tapState.syncAccuracy;
 
@@ -1365,6 +1422,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (audioEngine && typeof audioEngine.setSessionType === 'function') {
                     audioEngine.setSessionType(sessionData.sessionType);
                 }
+                if (audioEngine && typeof audioEngine.setOnVocalOnsetCallback === 'function') {
+                    audioEngine.setOnVocalOnsetCallback(handleVocalOnset);
+                }
                 
                 if (modeConfig.microphone_required) {
                     checkMicrophonePermission();
@@ -1391,38 +1451,204 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log(`[SESSION] Initialized: mode=${modeConfig.key} camera=${modeConfig.camera_required} mic=${modeConfig.microphone_required}`);
 });
 
+const SYLLABLE_PHRASE_LIST = [
+    { syllables: ['TA', 'TA', 'TA', 'TA'], name: 'Lingual-Alveolar (TA)', desc: 'Vocalize clearly on each metronome beat • Watch the audio energy bar below' },
+    { syllables: ['MA', 'MA', 'MA', 'MA'], name: 'Melodic Bilabial (MA)', desc: 'Sustain a voiced vowel hum on every beat for intonation pacing' },
+    { syllables: ['PA', 'PA', 'PA', 'PA'], name: 'Bilabial Plosive (PA)', desc: 'Crisp lip-burst consonant synchronization with metronome timing' },
+    { syllables: ['KA', 'KA', 'KA', 'KA'], name: 'Velar Plosive (KA)', desc: 'Posterior articulatory coordination paced to auditory pulses' },
+    { syllables: ['PA', 'TA', 'KA', 'PA'], name: 'Diadochokinetic (PA-TA-KA)', desc: 'Rapid sequential alternating articulation test pattern' },
+    { syllables: ['ONE', 'TWO', 'THREE', 'FOUR'], name: 'Number Cadence (1-2-3-4)', desc: 'Rhythmic numerical speech entrainment for cognitive-motor rhythm' },
+    { syllables: ['STEP', 'STEP', 'STEP', 'STEP'], name: 'Gait-Speech Cadence', desc: 'Rhythmic auditory speech-motor entrainment' }
+];
+let currentSyllablePhraseIndex = 0;
+
+function cycleSyllablePrompt() {
+    currentSyllablePhraseIndex = (currentSyllablePhraseIndex + 1) % SYLLABLE_PHRASE_LIST.length;
+    const phrase = SYLLABLE_PHRASE_LIST[currentSyllablePhraseIndex];
+    const promptContainer = document.getElementById('speechSyllablePrompt');
+    const subtextEl = document.getElementById('speechPromptSubtext');
+    if (promptContainer && phrase.syllables.length === 4) {
+        promptContainer.innerHTML = `
+            <span class="syllable-beat" id="syl_0">${phrase.syllables[0]}</span> &mdash;
+            <span class="syllable-beat" id="syl_1">${phrase.syllables[1]}</span> &mdash;
+            <span class="syllable-beat" id="syl_2">${phrase.syllables[2]}</span> &mdash;
+            <span class="syllable-beat" id="syl_3">${phrase.syllables[3]}</span>
+        `;
+    }
+    if (subtextEl) {
+        subtextEl.textContent = `${phrase.name} — ${phrase.desc}`;
+    }
+    if (typeof feather !== 'undefined') feather.replace();
+}
+
+function handleVocalOnset(event) {
+    if (!sessionData.isRunning) return;
+    
+    sessionData.accuracyScore = event.averageScore;
+    updateAccuracyDisplay(sessionData.accuracyScore);
+    
+    // Update live metrics cards
+    const countEl = document.getElementById('vocalSyllablesCount');
+    if (countEl) countEl.textContent = event.count;
+    
+    const cadEl = document.getElementById('vocalCadenceDisplay');
+    if (cadEl) cadEl.textContent = `${event.cadence} SPM`;
+    
+    const errEl = document.getElementById('vocalTimingError');
+    if (errEl) {
+        const sign = event.signedErrorMs > 0 ? '+' : '';
+        errEl.textContent = `${sign}${event.signedErrorMs || event.timingErrorMs} ms`;
+        errEl.style.color = Math.abs(event.timingErrorMs) < 80 ? '#10b981' : (Math.abs(event.timingErrorMs) < 180 ? '#00e5ff' : '#f59e0b');
+    }
+
+    // Animate speech syllable prompt container
+    const promptEl = document.getElementById('speechSyllablePrompt');
+    if (promptEl) {
+        promptEl.style.transform = 'scale(1.08)';
+        promptEl.style.color = event.score >= 80 ? '#10b981' : (event.score >= 50 ? '#00e5ff' : '#f59e0b');
+        setTimeout(() => {
+            promptEl.style.transform = 'scale(1.0)';
+            promptEl.style.color = '#00e5ff';
+        }, 150);
+    }
+
+    // Highlight individual matched syllable beat
+    const sylIndex = ((event.count - 1) % 4);
+    const activeSyl = document.getElementById(`syl_${sylIndex}`);
+    if (activeSyl) {
+        const origColor = activeSyl.style.color;
+        activeSyl.style.color = event.score >= 80 ? '#10b981' : (event.score >= 50 ? '#00e5ff' : '#f59e0b');
+        activeSyl.style.textShadow = '0 0 12px currentColor';
+        setTimeout(() => {
+            activeSyl.style.color = origColor || '';
+            activeSyl.style.textShadow = 'none';
+        }, 200);
+    }
+    
+    // Forward event to NuroSync
+    if (window.nuroSync && typeof window.nuroSync.recordEvent === 'function') {
+        window.nuroSync.recordEvent(event.timestamp / 1000, 'voice_syllable');
+    }
+
+    updateVoiceOrMotionIndicator(true, 'Vocalizing');
+}
+
+async function connectMicrophone() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showMicrophoneAlert('Microphone access is not supported by your browser or requires a secure context (HTTPS / localhost).');
+        return false;
+    }
+    
+    const btnConnect = document.getElementById('btnConnectMic');
+    const btnConnectInline = document.getElementById('btnConnectMicInline');
+    if (btnConnect) {
+        btnConnect.disabled = true;
+        btnConnect.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Connecting...';
+    }
+    if (btnConnectInline) {
+        btnConnectInline.disabled = true;
+        btnConnectInline.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Connecting...';
+    }
+
+    try {
+        if (!audioEngine) {
+            await initializeAudio();
+        }
+        if (audioEngine) {
+            audioEngine.setSessionType(sessionData.sessionType);
+            audioEngine.setOnVocalOnsetCallback(handleVocalOnset);
+            const ok = await audioEngine.initializeVoiceDetection();
+            if (ok) {
+                hideMicrophoneAlert();
+                if (btnConnect) {
+                    btnConnect.disabled = false;
+                    btnConnect.className = 'btn btn-sm btn-outline-success py-1 px-2';
+                    btnConnect.innerHTML = '<i data-feather="check" style="width: 12px; height: 12px; vertical-align: -1px; margin-right: 3px;"></i> Connected';
+                }
+                if (btnConnectInline) {
+                    btnConnectInline.disabled = false;
+                    btnConnectInline.className = 'btn btn-sm btn-outline-success py-0 px-2';
+                    btnConnectInline.innerHTML = '<i data-feather="check" style="width: 11px; height: 11px;"></i> Mic Connected';
+                }
+                const badge = document.getElementById('speechMicStatusBadge');
+                if (badge) {
+                    badge.className = 'badge bg-success';
+                    badge.innerHTML = '<i data-feather="mic" style="width: 12px; height: 12px; vertical-align: -1px; margin-right: 4px;"></i> Microphone Active';
+                }
+                const vocalStatusPill = document.getElementById('vocalStatusPill');
+                if (vocalStatusPill) {
+                    vocalStatusPill.className = 'badge bg-info text-dark';
+                    vocalStatusPill.textContent = 'Listening (Speak on Beat)';
+                }
+                if (typeof feather !== 'undefined') feather.replace();
+                console.log('[MIC] Microphone successfully connected.');
+                return true;
+            }
+        }
+        throw new Error('Microphone stream could not be acquired.');
+    } catch (err) {
+        console.warn('[MIC] Connection error:', err);
+        let errorMsg = 'Microphone access denied. Please click the camera/mic icon in the browser address bar to allow permissions.';
+        if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+            errorMsg = 'No microphone device was detected on your system.';
+        } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+            errorMsg = 'Microphone is already in use by another application.';
+        }
+        showMicrophoneAlert(errorMsg);
+        if (btnConnect) {
+            btnConnect.disabled = false;
+            btnConnect.className = 'btn btn-sm btn-outline-danger py-1 px-2';
+            btnConnect.innerHTML = '<i data-feather="alert-circle" style="width: 12px; height: 12px; vertical-align: -1px; margin-right: 3px;"></i> Retry Mic';
+        }
+        if (btnConnectInline) {
+            btnConnectInline.disabled = false;
+            btnConnectInline.className = 'btn btn-sm btn-outline-danger py-0 px-2';
+            btnConnectInline.innerHTML = '<i data-feather="alert-circle" style="width: 11px; height: 11px;"></i> Retry Mic';
+        }
+        if (typeof feather !== 'undefined') feather.replace();
+        return false;
+    }
+}
+
+function showMicrophoneAlert(message) {
+    const banner = document.getElementById('micAlertBanner');
+    const bannerText = document.getElementById('micAlertText');
+    const legacyAlert = document.getElementById('micPermission');
+    if (banner) {
+        if (bannerText) bannerText.textContent = message || 'Microphone access needed for speech pacing.';
+        banner.style.display = 'flex';
+    }
+    if (legacyAlert) legacyAlert.style.display = 'block';
+    if (typeof feather !== 'undefined') feather.replace();
+}
+
+function hideMicrophoneAlert() {
+    const banner = document.getElementById('micAlertBanner');
+    const legacyAlert = document.getElementById('micPermission');
+    if (banner) banner.style.display = 'none';
+    if (legacyAlert) legacyAlert.style.display = 'none';
+}
+
 async function checkMicrophonePermission() {
     try {
-        const permission = await navigator.permissions.query({ name: 'microphone' });
-        if (permission.state === 'denied' || permission.state === 'prompt') {
-            showMicrophonePermissionAlert();
-        } else {
-            console.log('[MIC] Microphone permission granted');
+        if (navigator.permissions && navigator.permissions.query) {
+            const permission = await navigator.permissions.query({ name: 'microphone' });
+            if (permission.state === 'granted') {
+                console.log('[MIC] Microphone permission already granted');
+                if (audioEngine && !audioEngine.voiceDetectionActive) {
+                    await audioEngine.initializeVoiceDetection();
+                }
+            } else if (permission.state === 'denied') {
+                showMicrophoneAlert('Microphone access was denied. Please allow microphone in browser site settings.');
+            }
         }
     } catch (error) {
-        showMicrophonePermissionAlert();
+        console.debug('[MIC] Permission query skipped or unsupported:', error);
     }
 }
 
 function showMicrophonePermissionAlert() {
-    const alertDiv = document.getElementById('micPermission');
-    if (alertDiv) alertDiv.style.display = 'block';
-    
-    const reqBtn = document.getElementById('requestMicBtn');
-    if (reqBtn) {
-        reqBtn.addEventListener('click', async () => {
-            try {
-                await navigator.mediaDevices.getUserMedia({ audio: true });
-                alertDiv.style.display = 'none';
-                if (audioEngine) {
-                    await audioEngine.initializeVoiceDetection();
-                }
-            } catch (error) {
-                console.error('[MIC] Microphone permission denied:', error);
-                alert('Microphone access is required for AI speech rhythm tracking.');
-            }
-        });
-    }
+    showMicrophoneAlert('Microphone access is required for AI speech rhythm tracking.');
 }
 
 function updateVoiceStatus() {
@@ -1431,33 +1657,76 @@ function updateVoiceStatus() {
     const isVoiceActive = audioEngine.isVoiceActive();
     const voiceVolume = audioEngine.getVoiceVolume();
     const voiceSyncAccuracy = audioEngine.getVoiceSyncAccuracy();
+    const vocalCount = (typeof audioEngine.getVocalCount === 'function') ? audioEngine.getVocalCount() : 0;
     
     const micIcon = document.getElementById('micIcon');
     const voiceIndicator = document.getElementById('voiceIndicator');
+    const vocalStatusPill = document.getElementById('vocalStatusPill');
+    const speechMicStatusBadge = document.getElementById('speechMicStatusBadge');
+    const speechVolumeMeter = document.getElementById('speechVolumeMeter');
+    const speechVolumeDbText = document.getElementById('speechVolumeDbText');
+    const volumeIndicator = document.getElementById('voiceVolumeIndicator');
     
-    if (isVoiceActive) {
-        if (micIcon) micIcon.setAttribute('data-feather', 'mic');
-        if (voiceIndicator) {
-            voiceIndicator.textContent = 'Active';
-            voiceIndicator.style.color = '#10b981';
+    // Scale RMS level for visual bar (0 - 100%)
+    const volumePercentage = Math.min(100, Math.round(voiceVolume * 500));
+    
+    if (speechVolumeMeter) {
+        speechVolumeMeter.style.width = `${volumePercentage}%`;
+    }
+    if (speechVolumeDbText) {
+        speechVolumeDbText.textContent = `Input Level: ${volumePercentage}%`;
+    }
+    if (volumeIndicator) {
+        volumeIndicator.style.height = `${Math.max(0, 100 - volumePercentage)}%`;
+    }
+    
+    if (audioEngine.voiceDetectionActive) {
+        if (speechMicStatusBadge) {
+            speechMicStatusBadge.className = 'badge bg-success';
+            speechMicStatusBadge.innerHTML = '<i data-feather="mic" style="width: 12px; height: 12px; vertical-align: -1px; margin-right: 4px;"></i> Microphone Active';
+        }
+        if (isVoiceActive) {
+            if (micIcon) micIcon.setAttribute('data-feather', 'mic');
+            if (voiceIndicator) {
+                voiceIndicator.textContent = 'Vocalizing';
+                voiceIndicator.style.color = '#10b981';
+            }
+            if (vocalStatusPill) {
+                vocalStatusPill.className = 'badge bg-success';
+                vocalStatusPill.textContent = 'Vocalizing...';
+            }
+        } else {
+            if (micIcon) micIcon.setAttribute('data-feather', 'mic');
+            if (voiceIndicator) {
+                voiceIndicator.textContent = 'Listening';
+                voiceIndicator.style.color = '#00e5ff';
+            }
+            if (vocalStatusPill) {
+                vocalStatusPill.className = 'badge bg-info text-dark';
+                vocalStatusPill.textContent = 'Listening (Speak on Beat)';
+            }
         }
     } else {
+        if (speechMicStatusBadge) {
+            speechMicStatusBadge.className = 'badge bg-secondary';
+            speechMicStatusBadge.innerHTML = '<i data-feather="mic-off" style="width: 12px; height: 12px; vertical-align: -1px; margin-right: 4px;"></i> Microphone Standby';
+        }
         if (micIcon) micIcon.setAttribute('data-feather', 'mic-off');
         if (voiceIndicator) {
-            voiceIndicator.textContent = 'Silent';
+            voiceIndicator.textContent = 'Mic Standby';
             voiceIndicator.style.color = '#64748b';
+        }
+        if (vocalStatusPill) {
+            vocalStatusPill.className = 'badge bg-warning text-dark';
+            vocalStatusPill.textContent = 'Mic Standby (Click Connect Mic)';
         }
     }
     
-    const volumeIndicator = document.getElementById('voiceVolumeIndicator');
-    if (volumeIndicator) {
-        const volumePercentage = Math.min(100, voiceVolume * 1000);
-        volumeIndicator.style.height = `${100 - volumePercentage}%`;
-    }
-    
-    if (voiceSyncAccuracy > 0) {
-        sessionData.accuracyScore = Math.max(sessionData.accuracyScore, voiceSyncAccuracy);
+    if (vocalCount > 0 && voiceSyncAccuracy > 0) {
+        sessionData.accuracyScore = voiceSyncAccuracy;
         updateAccuracyDisplay(sessionData.accuracyScore);
+    } else if (vocalCount === 0) {
+        updateAccuracyDisplay(0);
     }
     
     if (typeof feather !== 'undefined') feather.replace();
@@ -1570,8 +1839,11 @@ function startSession() {
     updateInterval = setInterval(updateSession, 5000);
     
     if (modeConfig.microphone_required) {
+        connectMicrophone().catch(e => {
+            console.warn('[MIC] Could not activate microphone:', e);
+        });
         if (voiceUpdateInterval) clearInterval(voiceUpdateInterval);
-        voiceUpdateInterval = setInterval(updateVoiceStatus, 100);
+        voiceUpdateInterval = setInterval(updateVoiceStatus, 80);
     }
     
     console.log(`[SESSION] Started session id=${sessionData.id} mode=${sessionData.sessionType}`);
@@ -1737,6 +2009,8 @@ async function stopSession() {
     let postureStability = 100;
     const tapCount = tapState ? tapState.count : 0;
     const tapCadence = tapState ? (tapState.cadence || Math.round(sessionData.currentBPM)) : 0;
+    const vocalCount = (audioEngine && typeof audioEngine.getVocalCount === 'function') ? audioEngine.getVocalCount() : 0;
+    const vocalCadence = (audioEngine && typeof audioEngine.getVocalCadence === 'function') ? audioEngine.getVocalCadence() : 0;
 
     try {
         if (window.legTracker) {
@@ -1758,23 +2032,25 @@ async function stopSession() {
             session_id: sessionData.id,
             session_type: sessionData.sessionType,
             measurement_quality: {
-                overall: tapCount > 5 ? 0.92 : 0.80,
+                overall: (tapCount > 5 || vocalCount > 5) ? 0.92 : (tapCount > 0 || vocalCount > 0 ? 0.80 : 0.0),
                 tracking_coverage: 1.0,
                 critical_landmark_coverage: 1.0,
-                quality_state: tapCount > 5 ? 'GOOD' : 'FAIR'
+                quality_state: (tapCount > 0 || vocalCount > 0) ? 'GOOD' : 'FAIR'
             },
             gait: { valid: false, reason: "NOT_GAIT_SESSION" },
             movement: {
                 tap_count: tapCount,
                 tap_cadence_tpm: tapCadence,
+                vocal_count: vocalCount,
+                vocal_cadence_spm: vocalCadence,
                 intertap_interval_mean_ms: (tapState && tapState.intertapMean) || 0,
                 intertap_interval_sd_ms: (tapState && tapState.intertapSd) || 0,
                 intertap_interval_cv: (tapState && tapState.intertapCv) || 0
             },
             sync: window.nuroSync ? window.nuroSync.getMetrics() : {
-                valid: false,
-                rhythm_alignment_score: null,
-                on_time_pct: null
+                valid: Boolean(sessionData.accuracyScore && sessionData.accuracyScore > 0),
+                rhythm_alignment_score: sessionData.accuracyScore || 0,
+                on_time_pct: sessionData.accuracyScore || 0
             }
         };
     }
@@ -1788,18 +2064,6 @@ async function stopSession() {
         telemetryPayload.agent_summary = window.nuroAgent && typeof window.nuroAgent.generateSessionSummary === 'function' ? window.nuroAgent.generateSessionSummary() : null;
     } catch (e) {
         console.warn('[NURO_PAYLOAD_ATTACH_ERROR]', e);
-    }
-
-    // Collect real telemetry data from trackers and audio engine before camera stop
-    const beats = (typeof getSessionBeatTimestamps === 'function') ? getSessionBeatTimestamps() : ((window.audioEngine && typeof window.audioEngine.getBeatTimestamps === 'function') ? window.audioEngine.getBeatTimestamps() : []);
-    let moveData = {
-        movement_events: [],
-        valid_pose_frames: 0,
-        total_pose_frames: 0,
-        pose_confidence: 0
-    };
-    if (window.legTracker && typeof window.legTracker.getMovementSessionData === 'function') {
-        moveData = window.legTracker.getMovementSessionData();
     }
 
     // 7. Safely stop camera and reset tracking engines
@@ -1828,16 +2092,13 @@ async function stopSession() {
         duration: sessionData.duration,
         final_bpm: sessionData.currentBPM,
         accuracy_score: sessionData.accuracyScore,
-        beat_timestamps_ms: beats,
-        movement_events: moveData.movement_events,
-        valid_pose_frames: moveData.valid_pose_frames,
-        total_pose_frames: moveData.total_pose_frames,
-        pose_confidence: moveData.pose_confidence,
         left_steps: leftSteps,
         right_steps: rightSteps,
         gait_symmetry: avgSymmetry,
         tap_count: tapCount,
         tap_cadence: tapCadence,
+        vocal_count: vocalCount,
+        vocal_cadence: vocalCadence,
         posture_stability: postureStability,
         metrics_data: telemetryPayload
     });
@@ -1847,29 +2108,26 @@ async function completeSessionOnServer(payload) {
     try {
         let notes = `Completed ${modeConfig.title} session.`;
         if (sessionData.sessionType === 'gait_trainer') {
-            notes = `Completed Gait Trainer session with fused ML leg tracking. Symmetry: ${payload.gait_symmetry !== null ? payload.gait_symmetry + '%' : 'Unavailable'}. Steps: ${payload.left_steps} left / ${payload.right_steps} right.`;
+            notes = `Completed Gait Trainer session with fused ML leg tracking. Symmetry: ${payload.gait_symmetry}%. Steps: ${payload.left_steps} left / ${payload.right_steps} right.`;
         } else if (sessionData.sessionType === 'balance_training') {
             notes = `Completed Balance Training session. Posture stability: ${payload.posture_stability}%. Lateral sway proxy recorded.`;
         } else if (sessionData.sessionType === 'finger_tapping') {
             notes = `Completed Finger Tapping session. Total taps: ${payload.tap_count}, Cadence: ${payload.tap_cadence} TPM.`;
         } else if (sessionData.sessionType === 'speech_rhythm') {
-            notes = `Completed Speech Rhythm session with rhythmic syllable pacing and vocal synchronization.`;
+            notes = `Completed Speech Rhythm session with rhythmic syllable pacing and vocal synchronization. Syllables: ${payload.vocal_count || 0}.`;
         }
 
         const requestBody = {
             duration: payload.duration,
             final_bpm: payload.final_bpm,
             accuracy_score: payload.accuracy_score,
-            beat_timestamps_ms: payload.beat_timestamps_ms,
-            movement_events: payload.movement_events,
-            valid_pose_frames: payload.valid_pose_frames,
-            total_pose_frames: payload.total_pose_frames,
-            pose_confidence: payload.pose_confidence,
             left_steps: payload.left_steps,
             right_steps: payload.right_steps,
             gait_symmetry: payload.gait_symmetry,
             tap_count: payload.tap_count,
             tap_cadence: payload.tap_cadence,
+            vocal_count: payload.vocal_count || 0,
+            vocal_cadence: payload.vocal_cadence || 0,
             posture_stability: payload.posture_stability,
             metrics_data: payload.metrics_data,
             notes: notes
@@ -1918,8 +2176,10 @@ async function completeSessionOnServer(payload) {
             if (sessionData.sessionType === 'speech_rhythm' || sessionData.sessionType === 'melodic_intonation') {
                 if (metric3Label) metric3Label.textContent = 'Pacing (SPM)';
                 if (metric4Label) metric4Label.textContent = 'Vocal Sync';
-                if (stepsEl) stepsEl.textContent = `${Math.round(sessionData.currentBPM || 0)} SPM`;
-                if (symEl) symEl.textContent = `${Math.round(sessionData.accuracyScore || 85)}%`;
+                const count = payload.vocal_count || 0;
+                const spm = payload.vocal_cadence || 0;
+                if (stepsEl) stepsEl.textContent = count > 0 ? `${spm} SPM (${count})` : '0 Syllables';
+                if (symEl) symEl.textContent = `${Math.round(sessionData.accuracyScore || 0)}%`;
             } else if (sessionData.sessionType === 'balance_training') {
                 if (metric3Label) metric3Label.textContent = 'Posture Sway';
                 if (metric4Label) metric4Label.textContent = 'Stability';
@@ -2344,18 +2604,24 @@ async function updateSession() {
     
     let currentAccuracy = 0;
     
-    if (modeConfig.microphone_required && audioEngine && audioEngine.voiceDetectionActive) {
-        const voiceAccuracy = audioEngine.getVoiceSyncAccuracy();
-        currentAccuracy = voiceAccuracy > 0 ? voiceAccuracy : 80;
+    if (modeConfig.microphone_required) {
+        const vocalCount = (audioEngine && typeof audioEngine.getVocalCount === 'function') ? audioEngine.getVocalCount() : 0;
+        const voiceAccuracy = (audioEngine && audioEngine.voiceDetectionActive) ? audioEngine.getVoiceSyncAccuracy() : 0;
+        currentAccuracy = (vocalCount > 0) ? voiceAccuracy : 0;
     } else if (sessionData.sessionType === 'finger_tapping') {
-        currentAccuracy = tapState.syncAccuracy || 80;
+        currentAccuracy = (tapState && tapState.count > 0) ? (tapState.syncAccuracy || 0) : 0;
     } else if (isCameraActive && sessionData.sessionType === 'balance_training') {
-        currentAccuracy = window.legTracker ? window.legTracker.balanceStabilityScore : 90;
+        currentAccuracy = window.legTracker ? window.legTracker.balanceStabilityScore : 0;
     } else if (isCameraActive && window.legTracker) {
         const syncMetrics = window.nuroSync ? window.nuroSync.getMetrics() : null;
-        currentAccuracy = syncMetrics ? syncMetrics.rhythm_alignment_score : (sessionData.cameraSyncAccuracy || 80);
+        const miSync = (window.latestMovementState && window.latestMovementState.rhythm && typeof window.latestMovementState.rhythm.sync === 'number')
+            ? Math.round(window.latestMovementState.rhythm.sync * 100)
+            : null;
+        currentAccuracy = (syncMetrics && syncMetrics.valid)
+            ? syncMetrics.rhythm_alignment_score
+            : (miSync !== null ? miSync : (sessionData.cameraSyncAccuracy || 0));
     } else {
-        currentAccuracy = sessionData.accuracyScore || 80;
+        currentAccuracy = sessionData.accuracyScore || 0;
     }
     
     sessionData.accuracyScore = currentAccuracy;
@@ -2382,7 +2648,7 @@ async function updateSession() {
             if (currentAccuracy > 85) {
                 const progressToTarget = (sessionData.targetBPM - sessionData.currentBPM) * 0.1;
                 suggestedBPM = Math.min(sessionData.targetBPM, sessionData.currentBPM + progressToTarget);
-            } else if (currentAccuracy < 60) {
+            } else if (currentAccuracy < 60 && currentAccuracy > 0) {
                 suggestedBPM = Math.max(sessionData.initialBPM * 0.8, sessionData.currentBPM - 2);
             }
         }
@@ -2502,6 +2768,31 @@ function updateAccuracyDisplay(accuracy) {
         renderIdleAccuracyDisplay();
         return;
     }
+    if (sessionData.sessionType === 'speech_rhythm' || sessionData.sessionType === 'melodic_intonation') {
+        const vocalCount = (audioEngine && typeof audioEngine.getVocalCount === 'function') ? audioEngine.getVocalCount() : 0;
+        if (vocalCount === 0) {
+            const accuracyEl = document.getElementById('accuracy');
+            if (accuracyEl) accuracyEl.textContent = '--';
+            const progressBar = document.getElementById('accuracyProgress');
+            if (progressBar) {
+                progressBar.style.width = '0%';
+                progressBar.textContent = 'Speak syllables on beat...';
+                progressBar.className = 'progress-bar bg-secondary';
+            }
+            return;
+        }
+    }
+    if (sessionData.sessionType === 'finger_tapping' && (!tapState || tapState.count === 0)) {
+        const accuracyEl = document.getElementById('accuracy');
+        if (accuracyEl) accuracyEl.textContent = '--';
+        const progressBar = document.getElementById('accuracyProgress');
+        if (progressBar) {
+            progressBar.style.width = '0%';
+            progressBar.textContent = 'Tap on beat to start...';
+            progressBar.className = 'progress-bar bg-secondary';
+        }
+        return;
+    }
     const roundedAccuracy = Math.round(accuracy);
     const accuracyEl = document.getElementById('accuracy');
     if (accuracyEl) accuracyEl.textContent = `${roundedAccuracy}%`;
@@ -2509,13 +2800,18 @@ function updateAccuracyDisplay(accuracy) {
     const progressBar = document.getElementById('accuracyProgress');
     if (progressBar) {
         progressBar.style.width = `${roundedAccuracy}%`;
-        progressBar.textContent = `${roundedAccuracy}% Accuracy`;
         progressBar.className = 'progress-bar';
-        if (roundedAccuracy >= 80) {
+        if (roundedAccuracy === 0) {
+            progressBar.textContent = 'Awaiting Input';
+            progressBar.classList.add('bg-secondary');
+        } else if (roundedAccuracy >= 80) {
+            progressBar.textContent = `${roundedAccuracy}% Accuracy`;
             progressBar.classList.add('bg-success');
         } else if (roundedAccuracy >= 60) {
+            progressBar.textContent = `${roundedAccuracy}% Accuracy`;
             progressBar.classList.add('bg-warning');
         } else {
+            progressBar.textContent = `${roundedAccuracy}% Accuracy`;
             progressBar.classList.add('bg-danger');
         }
     }

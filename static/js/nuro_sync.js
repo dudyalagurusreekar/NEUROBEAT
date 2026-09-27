@@ -24,14 +24,13 @@ class NuroSync {
         this.signedErrors = [];   // in ms
         this.absoluteErrors = []; // in ms
         this.phaseErrors = [];    // cycle-normalized [-0.5, 0.5]
-        
+
         this.earlyCount = 0;
         this.lateCount = 0;
         this.onTimeCount = 0;
         this.totalStepsEvaluated = 0;
-        
-        // Engineering score: Rhythm Alignment Score (0-100)
-        // Null until valid movement steps are evaluated
+
+        // Engineering score: Rhythm Alignment Score (0-100) - initialized to null until input events are evaluated
         this.rhythmAlignmentScore = null;
     }
 
@@ -88,7 +87,23 @@ class NuroSync {
         if (this.stepEvents.length > 60) this.stepEvents.shift();
 
         if (this.beatTimestamps.length === 0) {
-            return this.getInstantaneousMetrics(0, 0, 0, true);
+            return {
+                valid: false,
+                stepTime,
+                timingErrorMs: null,
+                timing_error_ms: null,
+                signedErrorMs: null,
+                signed_error_ms: null,
+                absErrorMs: null,
+                abs_error_ms: null,
+                phaseError: null,
+                phase_error: null,
+                isWithinTolerance: false,
+                is_within_tolerance: false,
+                rhythmAlignmentScore: null,
+                rhythm_alignment_score: null,
+                phase: 'NO_DATA'
+            };
         }
 
         // 1. Identify preceding, nearest, and following beats
@@ -123,6 +138,16 @@ class NuroSync {
             beatPeriod = followingBeat - precedingBeat;
         }
 
+        // Project upcoming beat if step is anticipating next beat not yet recorded
+        if (followingBeat === null && precedingBeat !== null) {
+            const projectedNext = precedingBeat + beatPeriod;
+            const nextDiff = Math.abs(stepTime - projectedNext);
+            if (nextDiff < minDiff) {
+                nearestBeat = projectedNext;
+                minDiff = nextDiff;
+            }
+        }
+
         // Signed error: positive = lag (late), negative = anticipation (early)
         const signedErrorSec = stepTime - nearestBeat;
         const signedErrorMs = Number((signedErrorSec * 1000).toFixed(1));
@@ -154,10 +179,10 @@ class NuroSync {
 
         // Deterministic instant score: 100 at 0 error, 0 at >= toleranceMs
         const instantScore = Math.max(0, Math.min(100, Math.round(100 * (1 - absErrorMs / this.toleranceMs))));
-        // Rolling exponential filter (alpha = 0.25)
-        if (this.rhythmAlignmentScore === null) {
-            this.rhythmAlignmentScore = instantScore;
+        if (this.totalStepsEvaluated === 1) {
+            this.rhythmAlignmentScore = Number(instantScore.toFixed(1));
         } else {
+            // Rolling exponential filter (alpha = 0.25)
             this.rhythmAlignmentScore = Number((0.25 * instantScore + 0.75 * this.rhythmAlignmentScore).toFixed(1));
         }
 
@@ -167,10 +192,15 @@ class NuroSync {
     getInstantaneousMetrics(signedErrorMs, absErrorMs, phaseError, isWithinTolerance) {
         return {
             signedErrorMs,
+            signed_error_ms: signedErrorMs,
             absErrorMs,
+            abs_error_ms: absErrorMs,
             phaseError,
+            phase_error: phaseError,
             isWithinTolerance,
+            is_within_tolerance: isWithinTolerance,
             rhythmAlignmentScore: this.rhythmAlignmentScore,
+            rhythm_alignment_score: this.rhythmAlignmentScore,
             medianAbsErrorMs: this.getMedian(this.absoluteErrors),
             rmseMs: this.getRMSE(this.signedErrors)
         };
@@ -213,20 +243,15 @@ class NuroSync {
     }
 
     /**
-     * Authoritative accuracy getter returning the deterministic Rhythm Alignment Score.
-     * Returns null if fewer than 3 valid steps evaluated.
+     * Backward-compatible accuracy getter returning the deterministic Rhythm Alignment Score
      */
     getCurrentAccuracy() {
-        if (this.totalStepsEvaluated < 3 || this.rhythmAlignmentScore === null) {
-            return null;
-        }
+        if (this.totalStepsEvaluated === 0 || this.absoluteErrors.length === 0) return 0;
         return Math.max(0, Math.min(100, Math.round(this.rhythmAlignmentScore)));
     }
 
     getRhythmAlignmentScore() {
-        if (this.totalStepsEvaluated < 3 || this.rhythmAlignmentScore === null) {
-            return null;
-        }
+        if (this.totalStepsEvaluated === 0 || this.absoluteErrors.length === 0) return 0;
         return Math.max(0, Math.min(100, Math.round(this.rhythmAlignmentScore)));
     }
 
@@ -238,23 +263,23 @@ class NuroSync {
      * Returns full multi-dimensional synchronization metrics packet conforming to schema v2.0
      */
     getMetricsSummary() {
-        if (this.absoluteErrors.length === 0 || this.totalStepsEvaluated < 3) {
+        if (this.absoluteErrors.length === 0) {
             return {
                 valid: false,
-                signed_error_ms_mean: null,
-                absolute_error_ms_mean: null,
-                median_abs_error_ms: null,
-                sd_ms: null,
-                rmse_ms: null,
-                p90_abs_error_ms: null,
-                p95_abs_error_ms: null,
-                on_time_pct: null,
+                signed_error_ms_mean: 0,
+                absolute_error_ms_mean: 0,
+                median_abs_error_ms: 0,
+                sd_ms: 0,
+                rmse_ms: 0,
+                p90_abs_error_ms: 0,
+                p95_abs_error_ms: 0,
+                on_time_pct: 0,
                 early_events: 0,
                 late_events: 0,
                 on_time_events: 0,
-                total_events: this.totalStepsEvaluated,
-                rhythm_alignment_score: null,
-                mean_phase_error: null
+                total_events: 0,
+                rhythm_alignment_score: 0,
+                mean_phase_error: 0
             };
         }
 
@@ -276,7 +301,7 @@ class NuroSync {
             late_events: this.lateCount,
             on_time_events: this.onTimeCount,
             total_events: this.totalStepsEvaluated,
-            rhythm_alignment_score: this.rhythmAlignmentScore !== null ? Math.round(this.rhythmAlignmentScore) : null,
+            rhythm_alignment_score: Math.round(this.rhythmAlignmentScore),
             mean_phase_error: this.getMean(this.phaseErrors)
         };
     }

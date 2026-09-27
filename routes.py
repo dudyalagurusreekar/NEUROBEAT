@@ -1,4 +1,4 @@
-from flask import render_template, request, redirect, url_for, session, flash, jsonify, send_file, abort
+from flask import render_template, request, redirect, url_for, session, flash, jsonify
 from werkzeug.exceptions import HTTPException
 from app import app, db
 from models import (
@@ -235,9 +235,7 @@ def api_patient_recent_sessions():
             'completed': s.completed,
             'duration': duration_str,
             'accuracy': round(s.accuracy_score) if s.accuracy_score is not None else None,
-            'bpm_range': f"{round(s.initial_bpm)} - {round(s.final_bpm or s.target_bpm or s.initial_bpm)}",
-            'has_report': s.completed,
-            'report_url': f"/session/{s.id}/report" if s.completed else None
+            'bpm_range': f"{round(s.initial_bpm)} - {round(s.final_bpm or s.target_bpm or s.initial_bpm)}"
         })
 
     return jsonify({
@@ -491,10 +489,11 @@ def _execute_session_update(session_id, data):
             adjustment_bpm = current_bpm
     else:
         adjustment_bpm = current_bpm
-        if sync_accuracy < 70:
-            adjustment_bpm = max(current_bpm - 2, 40)
-        elif sync_accuracy > 90:
-            adjustment_bpm = min(current_bpm + 1, 120)
+        if sync_accuracy > 0:
+            if sync_accuracy < 70:
+                adjustment_bpm = max(current_bpm - 2, 40)
+            elif sync_accuracy > 90:
+                adjustment_bpm = min(current_bpm + 1, 120)
 
     if adjustment_bpm != current_bpm:
         metric.adjustment_made = True
@@ -581,26 +580,10 @@ def complete_session(session_id):
         therapy_session.completed = True
         duration = int(data.get('duration', 0))
         final_bpm = float(data.get('final_bpm', therapy_session.initial_bpm))
-
-        # Authoritative SynchronizationEngine evaluation
-        from services.synchronization_engine import SynchronizationEngine
-        sync_result = SynchronizationEngine.evaluate_session(data)
-
-        # Accuracy score is derived strictly from real movements and beats (or None if insufficient)
-        if sync_result.get("synchronization_accuracy") is not None:
-            accuracy_score = sync_result["synchronization_accuracy"]
-        elif data.get('accuracy_score') is not None and sync_result.get("measurement_status") != "INSUFFICIENT_DATA":
-            try:
-                accuracy_score = float(data['accuracy_score'])
-            except (ValueError, TypeError):
-                accuracy_score = None
-        else:
-            accuracy_score = None
-
-        left_steps = int(sync_result.get('left_steps', data.get('left_steps', 0)))
-        right_steps = int(sync_result.get('right_steps', data.get('right_steps', 0)))
-        gait_symmetry = sync_result.get('symmetry')
-        measured_cadence = sync_result.get('cadence')
+        accuracy_score = float(data.get('accuracy_score', 0))
+        left_steps = int(data.get('left_steps', 0))
+        right_steps = int(data.get('right_steps', 0))
+        gait_symmetry = float(data.get('gait_symmetry', 0))
 
         therapy_session.duration_seconds = duration
         therapy_session.final_bpm = final_bpm
@@ -609,6 +592,8 @@ def complete_session(session_id):
 
         tap_count = int(data.get('tap_count', 0))
         tap_cadence = float(data.get('tap_cadence', 0))
+        vocal_count = int(data.get('vocal_count', 0))
+        vocal_cadence = float(data.get('vocal_cadence', 0))
         posture_stability = float(data.get('posture_stability', 100 if therapy_session.session_type == 'balance_training' else 0))
 
         metrics_dict = data.get('metrics_data', {})
@@ -618,23 +603,42 @@ def complete_session(session_id):
         metrics_dict['right_steps'] = right_steps
         metrics_dict['total_steps'] = left_steps + right_steps
         metrics_dict['gait_symmetry'] = gait_symmetry
-        metrics_dict['cadence'] = measured_cadence
-        metrics_dict['synchronization'] = sync_result
-        metrics_dict['measurement_status'] = sync_result.get('measurement_status', 'INSUFFICIENT_DATA')
         metrics_dict['tap_count'] = tap_count
         metrics_dict['tap_cadence'] = tap_cadence
+        metrics_dict['vocal_count'] = vocal_count
+        metrics_dict['vocal_cadence'] = vocal_cadence
         metrics_dict['posture_stability'] = posture_stability
 
         # Generate Nuro Agent session reflection
         from services.gemini_service import generate_patient_feedback_few_shot, generate_agent_session_reflection
-        perf_fraction = (accuracy_score / 100.0) if accuracy_score is not None else None
-        agent_summary = data.get('agent_summary') or metrics_dict.get('agent_summary') or data.get('summary') or {
+        incoming_summary = data.get('agent_summary') or metrics_dict.get('agent_summary') or data.get('summary')
+        
+        mq_candidate = None
+        if isinstance(incoming_summary, dict) and incoming_summary.get('averageMovementQuality') is not None:
+            mq_candidate = incoming_summary.get('averageMovementQuality')
+        elif metrics_dict.get('movement_quality') is not None:
+            mq_candidate = metrics_dict.get('movement_quality')
+        elif data.get('movement_quality') is not None:
+            mq_candidate = data.get('movement_quality')
+
+        if isinstance(mq_candidate, dict):
+            raw_mov_qual = float(mq_candidate.get('overall', 0.85))
+        elif mq_candidate is not None:
+            try:
+                raw_mov_qual = float(mq_candidate)
+            except (ValueError, TypeError):
+                raw_mov_qual = 0.85
+        else:
+            raw_mov_qual = 0.85
+
+        acc_ratio = (accuracy_score / 100.0) if accuracy_score is not None else 0.0
+        agent_summary = incoming_summary or {
             'sessionId': session_id,
             'duration': duration,
-            'endingPerformance': perf_fraction,
-            'averageRhythmSync': perf_fraction,
-            'bestTempo': final_bpm,
-            'measurementStatus': sync_result.get('measurement_status')
+            'endingPerformance': acc_ratio,
+            'averageMovementQuality': raw_mov_qual,
+            'averageRhythmSync': acc_ratio,
+            'bestTempo': final_bpm
         }
         agent_reflection = generate_agent_session_reflection(agent_summary)
         metrics_dict['agent_reflection'] = agent_reflection
@@ -646,13 +650,13 @@ def complete_session(session_id):
             sess_summary = SessionSummary(session_id=session_id)
             db.session.add(sess_summary)
         
-        sess_summary.starting_performance = perf_fraction
-        sess_summary.ending_performance = perf_fraction
+        sess_summary.starting_performance = float(agent_summary.get('startingPerformance') if agent_summary.get('startingPerformance') is not None else acc_ratio)
+        sess_summary.ending_performance = float(agent_summary.get('endingPerformance') if agent_summary.get('endingPerformance') is not None else acc_ratio)
         sess_summary.improvement = float(agent_summary.get('improvement') or 0.0)
-        sess_summary.average_movement_quality = perf_fraction
-        sess_summary.average_rhythm_sync = perf_fraction
+        sess_summary.average_movement_quality = float(agent_summary.get('averageMovementQuality') if agent_summary.get('averageMovementQuality') is not None else raw_mov_qual)
+        sess_summary.average_rhythm_sync = float(agent_summary.get('averageRhythmSync') if agent_summary.get('averageRhythmSync') is not None else acc_ratio)
         raw_conf = agent_summary.get('averageConfidence')
-        sess_summary.average_confidence = float(raw_conf) if raw_conf is not None else (0.9 if sync_result.get('measurement_status') == 'VALID' else 0.0)
+        sess_summary.average_confidence = float(raw_conf) if raw_conf is not None else 0.9
         sess_summary.best_tempo = float(agent_summary.get('bestTempo') or final_bpm)
         sess_summary.successful_tempo_range = str(agent_summary.get('successfulTempoRange') or f"{round(final_bpm)} BPM")
         sess_summary.successful_adaptations = int(agent_summary.get('successfulAdaptations') or 0)
@@ -672,8 +676,6 @@ def complete_session(session_id):
             data.get('status') != 'ABANDONED' and
             not data.get('abandoned', False) and
             duration >= 15.0 and
-            sync_result.get('measurement_status') == 'VALID' and
-            accuracy_score is not None and
             0.0 <= accuracy_score <= 100.0 and
             40.0 <= final_bpm <= 140.0 and
             sess_summary.average_confidence >= 0.45
@@ -719,7 +721,6 @@ def complete_session(session_id):
                 'duration': duration,
                 'final_bpm': final_bpm,
                 'accuracy_score': accuracy_score,
-                'measurement_status': sync_result.get('measurement_status'),
                 'improvement': sess_summary.improvement
             }),
             idempotency_key=f"complete_{session_id}_{int(datetime.utcnow().timestamp())}"
@@ -732,11 +733,11 @@ def complete_session(session_id):
         feedback = generate_patient_feedback_few_shot(
             therapy_session.session_type,
             duration,
-            accuracy_score or 0.0,
+            accuracy_score,
             f"{round(therapy_session.initial_bpm)} -> {round(final_bpm)}",
             left_steps=left_steps,
             right_steps=right_steps,
-            symmetry=gait_symmetry or 0.0
+            symmetry=gait_symmetry
         )
 
         # Generate and persist Structured Clinical Report (Gemini + Longitudinal Context)
@@ -752,10 +753,9 @@ def complete_session(session_id):
                 'initial_bpm': therapy_session.initial_bpm,
                 'final_bpm': final_bpm,
                 'accuracy_score': accuracy_score,
-                'measurement_status': sync_result.get('measurement_status', 'INSUFFICIENT_DATA'),
-                'movement_count': sync_result.get('movement_event_count', 0) or max(left_steps + right_steps, tap_count),
-                'cadence': measured_cadence,
-                'symmetry': gait_symmetry
+                'movement_count': max(left_steps + right_steps, tap_count, vocal_count),
+                'vocal_count': vocal_count,
+                'vocal_cadence': vocal_cadence
             }
             clinical_report_json = generate_structured_clinical_report(clinical_data, hist_ctx)
             saved_report = save_or_update_clinical_report(session_id, clinical_report_json)
@@ -769,10 +769,6 @@ def complete_session(session_id):
             'feedback': feedback,
             'agent_reflection': agent_reflection,
             'clinical_report': clinical_report_dict,
-            'synchronization': sync_result,
-            'accuracy_score': accuracy_score,
-            'cadence': measured_cadence,
-            'measurement_status': sync_result.get('measurement_status', 'INSUFFICIENT_DATA'),
             'session_summary': {
                 'best_tempo': sess_summary.best_tempo,
                 'improvement': sess_summary.improvement,
@@ -789,6 +785,8 @@ def complete_session(session_id):
             'gait_symmetry': gait_symmetry,
             'tap_count': tap_count,
             'tap_cadence': tap_cadence,
+            'vocal_count': vocal_count,
+            'vocal_cadence': vocal_cadence,
             'posture_stability': posture_stability
         })
 
@@ -1279,7 +1277,7 @@ def baseline_assessment():
 
 @app.route('/progress/<int:patient_id>')
 def progress_view(patient_id):
-    """Progress visualization page with verified, zero-N/A longitudinal metrics"""
+    """Progress visualization page"""
     if 'user_id' not in session:
         flash('Please log in to access this page.', 'error')
         return redirect(url_for('index'))
@@ -1301,94 +1299,10 @@ def progress_view(patient_id):
         completed=True
     ).order_by(TherapySession.start_time.asc()).all()
 
-    # Derived real longitudinal metrics to eliminate any N/A
-    from services.historical_analysis import (
-        get_patient_history,
-        compute_accuracy_trend,
-        calculate_advisory_bpm,
-        calculate_accuracy_delta
-    )
-    
-    # 1. Baseline Cadence: patient setting -> assessments -> first session -> 60
-    computed_baseline = patient_profile.baseline_cadence
-    if not computed_baseline and hasattr(patient_profile, 'assessments') and patient_profile.assessments:
-        computed_baseline = patient_profile.assessments[0].measured_value
-    if not computed_baseline and sessions:
-        computed_baseline = sessions[0].initial_bpm
-    if not computed_baseline:
-        computed_baseline = 60.0
-
-    # 2. Target Cadence: patient setting -> last session target -> advisory -> 1.1x baseline
-    computed_target = patient_profile.target_cadence
-    if not computed_target and sessions:
-        computed_target = sessions[-1].target_bpm
-    if not computed_target:
-        computed_target = round(computed_baseline * 1.1)
-
-    # 3. Current BPM: last session final -> initial -> baseline
-    if sessions:
-        current_bpm = sessions[-1].final_bpm or sessions[-1].initial_bpm or computed_baseline
-    else:
-        current_bpm = computed_baseline
-
-    # 4. Accurate format for durations, accuracy, notes, and report availability
-    formatted_sessions = []
-    total_duration_sec = 0
-    valid_accuracies = []
-
-    for s in sessions:
-        dur = s.duration_seconds or 0
-        total_duration_sec += dur
-        if s.accuracy_score is not None:
-            valid_accuracies.append(s.accuracy_score)
-
-        if dur < 60 and dur > 0:
-            dur_str = f"{dur}s"
-        elif dur >= 60:
-            m = dur // 60
-            sec = dur % 60
-            dur_str = f"{m}m {sec}s" if sec > 0 else f"{m} min"
-        else:
-            dur_str = "< 1 min"
-
-        init_bpm = round(s.initial_bpm or 60.0)
-        final_bpm = round(s.final_bpm or s.initial_bpm or 60.0)
-        bpm_str = f"{init_bpm}" if init_bpm == final_bpm else f"{init_bpm} → {final_bpm}"
-
-        formatted_sessions.append({
-            'id': s.id,
-            'start_time': s.start_time,
-            'session_type': s.session_type,
-            'duration_str': dur_str,
-            'duration_seconds': dur,
-            'initial_bpm': init_bpm,
-            'final_bpm': final_bpm,
-            'bpm_str': bpm_str,
-            'accuracy_score': round(s.accuracy_score) if s.accuracy_score is not None else 0,
-            'notes': s.notes or '',
-            'has_report': True
-        })
-
-    avg_accuracy = round(sum(valid_accuracies) / len(valid_accuracies), 1) if valid_accuracies else 0.0
-    total_minutes = total_duration_sec // 60 if total_duration_sec >= 60 else (1 if total_duration_sec > 0 else 0)
-
-    # Trend info
-    history = get_patient_history(patient_id, limit=10)
-    trend_info = compute_accuracy_trend(history)
-
-    return render_template(
-        'progress.html',
-        patient_profile=patient_profile,
-        sessions=sessions,
-        formatted_sessions=formatted_sessions,
-        baseline_cadence=round(computed_baseline),
-        target_cadence=round(computed_target),
-        current_bpm=round(current_bpm),
-        avg_accuracy=avg_accuracy,
-        total_minutes=total_minutes,
-        trend_info=trend_info,
-        user=user
-    )
+    return render_template('progress.html', 
+                         patient_profile=patient_profile,
+                         sessions=sessions,
+                         user=user)
 
 @app.route('/api/progress/<int:patient_id>')
 def progress_data(patient_id):
@@ -1422,18 +1336,15 @@ def progress_data(patient_id):
 
     for therapy_session in therapy_sessions:
         dates.append(therapy_session.start_time.strftime('%Y-%m-%d'))
-        accuracy_scores.append(round(therapy_session.accuracy_score or 0))
-        bpm_values.append(round(therapy_session.final_bpm or therapy_session.initial_bpm or 60.0))
-
-    computed_baseline = patient_profile.baseline_cadence or (bpm_values[0] if bpm_values else 60.0)
-    computed_target = patient_profile.target_cadence or (max(bpm_values) if bpm_values else round(computed_baseline * 1.1))
+        accuracy_scores.append(therapy_session.accuracy_score or 0)
+        bpm_values.append(therapy_session.final_bpm or therapy_session.initial_bpm)
 
     return jsonify({
         'dates': dates,
         'accuracy_scores': accuracy_scores,
         'bpm_values': bpm_values,
-        'baseline_cadence': round(computed_baseline),
-        'target_cadence': round(computed_target)
+        'baseline_cadence': patient_profile.baseline_cadence,
+        'target_cadence': patient_profile.target_cadence
     })
 
 @app.route('/create_patient', methods=['POST'])
@@ -1729,224 +1640,4 @@ def get_session_clinical_report(session_id):
         'success': True,
         'session_id': session_id,
         'clinical_report': report.to_dict() if report else None
-    })
-
-
-# ==============================================================================
-# CLINICAL REPORT VIEW & PDF EXPORT
-# ==============================================================================
-
-@app.route('/session/<int:session_id>/report', methods=['GET'])
-def session_report_view(session_id):
-    """Render a dedicated, printable clinical progress report for a therapy session"""
-    if 'user_id' not in session:
-        flash('Please log in to view clinical reports.', 'error')
-        return redirect(url_for('index'))
-
-    therapy_session = db.session.get(TherapySession, session_id) if hasattr(db.session, 'get') else TherapySession.query.get_or_404(session_id)
-    if not therapy_session:
-        abort(404)
-
-    user = db.session.get(User, session['user_id']) if hasattr(db.session, 'get') else User.query.get(session['user_id'])
-    if not user or not _can_access_session(user, therapy_session):
-        flash('Unauthorized access to this clinical report.', 'error')
-        return redirect(url_for('patient_dashboard' if user.user_type == 'patient' else 'clinician_dashboard'))
-
-    # Retrieve or automatically generate ClinicalReport
-    clinical_report = ClinicalReport.query.filter_by(session_id=session_id).first()
-    if not clinical_report:
-        from services.historical_analysis import format_historical_context_for_prompt, save_or_update_clinical_report
-        from services.gemini_service import generate_structured_clinical_report
-
-        hist_ctx = format_historical_context_for_prompt(therapy_session.patient_id, therapy_session.session_type)
-        clinical_data = {
-            'activity_type': therapy_session.session_type,
-            'duration_seconds': therapy_session.duration_seconds or 0,
-            'initial_bpm': therapy_session.initial_bpm or 60.0,
-            'final_bpm': therapy_session.final_bpm or therapy_session.initial_bpm or 60.0,
-            'accuracy_score': therapy_session.accuracy_score or 0.0,
-            'movement_count': max(getattr(therapy_session, 'left_steps', 0) + getattr(therapy_session, 'right_steps', 0), getattr(therapy_session, 'tap_count', 0), getattr(therapy_session, 'total_steps', 0) or 0)
-        }
-        report_json = generate_structured_clinical_report(clinical_data, hist_ctx)
-        clinical_report = save_or_update_clinical_report(session_id, report_json)
-
-    def _parse_bullet_list(val):
-        if not val:
-            return []
-        if isinstance(val, list):
-            return val
-        try:
-            parsed = json.loads(val)
-            if isinstance(parsed, list):
-                return parsed
-            return [str(parsed)]
-        except Exception:
-            return [str(val)]
-
-    bullets = {
-        'what_you_did': _parse_bullet_list(clinical_report.what_you_did),
-        'performance_observations': _parse_bullet_list(clinical_report.performance_observations),
-        'what_to_improve': _parse_bullet_list(clinical_report.what_to_improve),
-        'recommendations': _parse_bullet_list(clinical_report.recommendations)
-    }
-
-    # Fetch longitudinal comparison
-    from services.historical_analysis import get_patient_history, compute_accuracy_trend, calculate_accuracy_delta, calculate_advisory_bpm
-    history = get_patient_history(therapy_session.patient_id, therapy_session.session_type, limit=10)
-    delta_info = calculate_accuracy_delta(therapy_session.accuracy_score or 0.0, history)
-    trend_info = compute_accuracy_trend(history)
-    advisory_bpm = calculate_advisory_bpm(
-        therapy_session.final_bpm or therapy_session.initial_bpm,
-        therapy_session.accuracy_score or 0.0,
-        trend_info
-    )
-
-    sess_summary = SessionSummary.query.filter_by(session_id=session_id).first()
-    adaptations = AdaptationRecord.query.filter_by(session_id=session_id).order_by(AdaptationRecord.timestamp.asc()).all()
-
-    return render_template(
-        'session_report.html',
-        therapy_session=therapy_session,
-        patient=therapy_session.patient,
-        clinical_report=clinical_report,
-        bullets=bullets,
-        summary=sess_summary,
-        adaptations=adaptations,
-        delta_info=delta_info,
-        trend_info=trend_info,
-        advisory_bpm=round(advisory_bpm, 1),
-        initial_bpm=round(therapy_session.initial_bpm or 60.0),
-        final_bpm=round(therapy_session.final_bpm or therapy_session.initial_bpm or 60.0),
-        target_bpm=round(therapy_session.patient.target_cadence or therapy_session.target_bpm or 70.0),
-        accuracy_score=round(therapy_session.accuracy_score or 0.0),
-        user=user
-    )
-
-
-@app.route('/session/<int:session_id>/report/pdf', methods=['GET'])
-def session_report_pdf(session_id):
-    """Download official clinical PDF report generated via ReportLab"""
-    if 'user_id' not in session:
-        return jsonify({'error': 'Unauthorized'}), 401
-
-    therapy_session = db.session.get(TherapySession, session_id) if hasattr(db.session, 'get') else TherapySession.query.get_or_404(session_id)
-    user = db.session.get(User, session['user_id']) if hasattr(db.session, 'get') else User.query.get(session['user_id'])
-    if not user or not _can_access_session(user, therapy_session):
-        return jsonify({'error': 'Forbidden'}), 403
-
-    # Ensure ClinicalReport exists
-    clinical_report = ClinicalReport.query.filter_by(session_id=session_id).first()
-    if not clinical_report:
-        from services.historical_analysis import format_historical_context_for_prompt, save_or_update_clinical_report
-        from services.gemini_service import generate_structured_clinical_report
-
-        hist_ctx = format_historical_context_for_prompt(therapy_session.patient_id, therapy_session.session_type)
-        clinical_data = {
-            'activity_type': therapy_session.session_type,
-            'duration_seconds': therapy_session.duration_seconds or 0,
-            'initial_bpm': therapy_session.initial_bpm or 60.0,
-            'final_bpm': therapy_session.final_bpm or therapy_session.initial_bpm or 60.0,
-            'accuracy_score': therapy_session.accuracy_score or 0.0,
-            'movement_count': max(getattr(therapy_session, 'left_steps', 0) + getattr(therapy_session, 'right_steps', 0), getattr(therapy_session, 'tap_count', 0), getattr(therapy_session, 'total_steps', 0) or 0)
-        }
-        report_json = generate_structured_clinical_report(clinical_data, hist_ctx)
-        clinical_report = save_or_update_clinical_report(session_id, report_json)
-
-    from services.historical_analysis import get_patient_history, compute_accuracy_trend, calculate_accuracy_delta, calculate_advisory_bpm
-    history = get_patient_history(therapy_session.patient_id, therapy_session.session_type, limit=10)
-    delta_info = calculate_accuracy_delta(therapy_session.accuracy_score or 0.0, history)
-    trend_info = compute_accuracy_trend(history)
-    advisory_bpm = calculate_advisory_bpm(
-        therapy_session.final_bpm or therapy_session.initial_bpm,
-        therapy_session.accuracy_score or 0.0,
-        trend_info
-    )
-    sess_summary = SessionSummary.query.filter_by(session_id=session_id).first()
-
-    from services.pdf_service import generate_clinical_report_pdf
-    pdf_buffer = generate_clinical_report_pdf(
-        therapy_session=therapy_session,
-        clinical_report=clinical_report,
-        patient_profile=therapy_session.patient,
-        summary=sess_summary,
-        delta_info=delta_info,
-        trend_info=trend_info,
-        advisory_bpm=advisory_bpm
-    )
-
-    filename = f"nurobeats_clinical_report_session_{session_id}.pdf"
-    return send_file(
-        pdf_buffer,
-        mimetype='application/pdf',
-        as_attachment=True,
-        download_name=filename
-    )
-
-
-# ==============================================================================
-# PROMPT CONTROL & HUGGING FACE INFERENCE CONFIGURATION APIS
-# ==============================================================================
-
-@app.route('/api/ai/prompts', methods=['GET', 'POST'])
-def api_ai_prompts():
-    """Inspect and dynamically update centralized AI prompt templates"""
-    from services.prompt_service import PromptService
-    if request.method == 'GET':
-        return jsonify({
-            'success': True,
-            'prompts': PromptService.get_all_prompts()
-        })
-    data = request.get_json(silent=True) or {}
-    prompt_type = data.get('prompt_type')
-    template = data.get('template')
-    if not prompt_type or not template:
-        return jsonify({'success': False, 'error': 'prompt_type and template required'}), 400
-    updated = PromptService.set_template(prompt_type, template)
-    return jsonify({
-        'success': updated,
-        'prompt_type': prompt_type,
-        'template': PromptService.get_template(prompt_type)
-    })
-
-
-@app.route('/api/hf/config', methods=['GET', 'POST'])
-def api_hf_config():
-    """Get or update Hugging Face model configuration, device, and inference parameters"""
-    from services.ai_provider import AIProviderManager
-    if request.method == 'GET':
-        return jsonify({
-            'success': True,
-            'config': AIProviderManager.get_hf_config()
-        })
-    updates = request.get_json(silent=True) or {}
-    new_cfg = AIProviderManager.update_hf_config(updates)
-    return jsonify({
-        'success': True,
-        'config': new_cfg
-    })
-
-
-@app.route('/api/hf/inference-test', methods=['POST'])
-def api_hf_inference_test():
-    """Execute live controlled Hugging Face test inference"""
-    data = request.get_json(silent=True) or {}
-    bpm = int(data.get('bpm', 60))
-    prompt = data.get('prompt', 'gait rhythmic entrainment')
-    duration = int(data.get('duration', 4))
-    custom_params = data.get('parameters', {})
-    
-    from beat_generator import BeatGenerator
-    bg = BeatGenerator()
-    res = bg.generate_beat_detailed(
-        bpm=bpm,
-        duration=duration,
-        prompt=prompt,
-        custom_params=custom_params
-    )
-    return jsonify({
-        'success': res.get('success', False),
-        'audio_url': res.get('audio_url'),
-        'engine_used': res.get('engine_used'),
-        'track_title': res.get('track_title'),
-        'bpm': res.get('bpm')
     })

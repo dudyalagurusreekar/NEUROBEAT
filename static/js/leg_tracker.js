@@ -642,7 +642,6 @@ class MultiSignalStepDetector {
         this.validSteps = 0;
         this.rejectedCandidates = 0;
         this.minStepCooldown = 350; // ms
-        this.movementEvents = []; // Real movement events for deterministic synchronization
 
         // Trajectory tracking
         this.prevLeftAnkleY = null;
@@ -798,15 +797,6 @@ class MultiSignalStepDetector {
             if ((stepLeg === 'left' && leftScore > 0.75) || (stepLeg === 'right' && rightScore > 0.75)) {
                 eventType = 'HEEL_STRIKE_CANDIDATE';
             }
-
-            // Real movement event for authoritative synchronization engine
-            if (!this.movementEvents) this.movementEvents = [];
-            this.movementEvents.push({
-                timestamp_ms: now,
-                type: eventType,
-                side: stepLeg.toUpperCase(),
-                confidence: Number((stepLeg === 'left' ? leftScore : rightScore).toFixed(3))
-            });
         }
 
         return {
@@ -844,7 +834,6 @@ class MultiSignalStepDetector {
         this.leftStepTimestamps = [];
         this.rightStepTimestamps = [];
         this.stepIntervals = [];
-        this.movementEvents = [];
     }
 }
 
@@ -1218,37 +1207,12 @@ class LegKinematicsTracker {
         this.latestPoseTimestamp = tMs || arrivalTime;
         this.latestResults = results;
 
-        this.totalPoseFrames = (this.totalPoseFrames || 0) + 1;
-        if (results && results.poseLandmarks && results.poseLandmarks.length >= 33) {
-            this.validPoseFrames = (this.validPoseFrames || 0) + 1;
-            let visSum = 0;
-            for (let i = 0; i < results.poseLandmarks.length; i++) {
-                visSum += (results.poseLandmarks[i].visibility ?? 1.0);
-            }
-            const frameConf = visSum / results.poseLandmarks.length;
-            this.avgPoseConfidence = this.avgPoseConfidence
-                ? (0.95 * this.avgPoseConfidence + 0.05 * frameConf)
-                : frameConf;
-        }
-
         this.latencyMs = Number((arrivalTime - (this.inFlightStart || arrivalTime)).toFixed(1));
         this.frameCount++;
         if (this.frameCount % 10 === 0) {
             this.fps = Number((1000.0 / Math.max(1, this.latencyMs)).toFixed(1));
         }
         this.lastFrameTime = arrivalTime;
-    }
-
-    getMovementSessionData() {
-        const events = this.stepDetector && this.stepDetector.movementEvents ? [...this.stepDetector.movementEvents] : [];
-        return {
-            movement_events: events,
-            valid_pose_frames: this.validPoseFrames || 0,
-            total_pose_frames: this.totalPoseFrames || 0,
-            pose_confidence: Number((this.avgPoseConfidence || (this.validPoseFrames > 0 ? 0.85 : 0)).toFixed(2)),
-            left_steps: this.stepDetector ? this.stepDetector.leftStepsCount : 0,
-            right_steps: this.stepDetector ? this.stepDetector.rightStepsCount : 0
-        };
     }
 
     /**
@@ -1804,8 +1768,10 @@ class LegKinematicsTracker {
                 path_length: Number(this.balanceEvaluator.pathLength.toFixed(3))
             },
             sync: syncMetrics || {
-                valid: false,
-                rhythm_alignment_score: null
+                valid: (window.latestMovementState && window.latestMovementState.rhythm && typeof window.latestMovementState.rhythm.sync === 'number'),
+                rhythm_alignment_score: (window.latestMovementState && window.latestMovementState.rhythm && typeof window.latestMovementState.rhythm.sync === 'number')
+                    ? Math.round(window.latestMovementState.rhythm.sync * 100)
+                    : 0
             },
             movement_intelligence: window.latestMovementState || (window.movementIntelligence && typeof window.movementIntelligence.getState === 'function' ? window.movementIntelligence.getState() : null),
             adaptive_state: window.latestAdaptiveState || (window.adaptiveEngine && typeof window.adaptiveEngine.getCurrentState === 'function' ? window.adaptiveEngine.getCurrentState() : null),
@@ -1962,6 +1928,9 @@ async function runFusedLegTracking(diffScore, frameId = null, captureTimestampMs
                 fId
             );
             window.latestMovementState = miState;
+            if (typeof sessionData !== 'undefined' && miState.rhythm && typeof miState.rhythm.sync === 'number') {
+                sessionData.cameraSyncAccuracy = Math.round(miState.rhythm.sync * 100);
+            }
 
             // Learned Temporal Motion Intelligence P4: Continuous Phase & Cycle Tracking
             if (window.p4PhaseIntelligence) {
