@@ -257,6 +257,40 @@ class TestClinicalReportsAndHF(unittest.TestCase):
         self.assertIsNotNone(data["clinical_report"])
         self.assertIn("soap_objective", data["clinical_report"])
 
+    def test_prompt_intelligent_extraction(self):
+        """Test intelligent BPM and instrument extraction from natural language prompts."""
+        bg = BeatGenerator()
+
+        # Prompt 1: Piano + 65 BPM
+        res1 = bg.generate_beat_detailed(prompt="Calm lo-fi piano 65 bpm", duration=2)
+        self.assertTrue(res1["success"])
+        self.assertEqual(res1["bpm"], 65)
+        self.assertEqual(res1["sound_type"], "piano")
+        self.assertIn("piano", res1["audio_url"].lower())
+
+        # Prompt 2: Drums + 110 BPM
+        res2 = bg.generate_beat_detailed(prompt="Upbeat rock drums 110 bpm", duration=2)
+        self.assertTrue(res2["success"])
+        self.assertEqual(res2["bpm"], 110)
+        self.assertEqual(res2["sound_type"], "drum")
+
+        # Prompt 3: Solfeggio / Bells + 72 BPM via API route
+        with self.client.session_transaction() as sess:
+            sess["user_id"] = self.user.id
+            sess["user_type"] = "patient"
+
+        resp = self.client.post("/api/beat/generate_ai", json={
+            "prompt": "Ambient solfeggio healing chimes 72 bpm",
+            "duration": 2
+        })
+        self.assertEqual(resp.status_code, 200)
+        data = json.loads(resp.data)
+        self.assertTrue(data["success"])
+        self.assertEqual(data["bpm"], 72)
+        self.assertEqual(data["sound_type"], "soft_bell")
+        self.assertIsNotNone(data["audio_url"])
+
 
 if __name__ == "__main__":
     unittest.main()
+

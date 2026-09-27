@@ -20,6 +20,7 @@ import random
 import time
 import json
 import logging
+import re
 from typing import Dict, Any, Optional
 
 try:
@@ -307,8 +308,8 @@ class BeatGenerator:
         """
         Public high-level generation API.
         Attempts Level 1 neural generation, gracefully falling back to Level 2 acoustic synthesis.
+        Intelligently extracts BPM and acoustic sound type from user natural language prompt.
         """
-        bpm_val = max(40, min(140, int(bpm)))
         sound_map = {
             "gait_trainer": "drum",
             "upper_limb_motor": "drum",
@@ -317,12 +318,55 @@ class BeatGenerator:
             "cognitive_rhythm": "soft_bell",
             "rhythmic_walking": "drum"
         }
-        if session_type and session_type in sound_map:
+
+        resolved_prompt = (prompt or custom_prompt or "").strip()
+
+        # 1. Intelligent BPM extraction from prompt if present
+        extracted_bpm = None
+        if resolved_prompt:
+            m_bpm = re.search(r'(\d{2,3})\s*(?:bpm|beats\s*per\s*minute)\b', resolved_prompt, re.IGNORECASE)
+            if not m_bpm:
+                m_bpm = re.search(r'\b(?:tempo|bpm|cadence|pace)\s*[:=]?\s*(\d{2,3})\b', resolved_prompt, re.IGNORECASE)
+            if m_bpm:
+                try:
+                    val = int(m_bpm.group(1))
+                    if 40 <= val <= 200:
+                        extracted_bpm = val
+                except (ValueError, TypeError):
+                    pass
+
+        # Priority: explicit non-default bpm, then prompt-extracted bpm, then default
+        if extracted_bpm is not None and (bpm is None or bpm == 60 or bpm == 100):
+            bpm_val = extracted_bpm
+        elif bpm is not None:
+            bpm_val = max(40, min(180, int(bpm)))
+        else:
+            bpm_val = extracted_bpm or 60
+
+        # 2. Intelligent instrument/sound_type extraction from prompt
+        prompt_lower = resolved_prompt.lower()
+        detected_sound = None
+        if any(w in prompt_lower for w in ["piano", "rhodes", "keyboard", "chord", "chords", "lo-fi piano", "lofi piano", "keys"]):
+            detected_sound = "piano"
+        elif any(w in prompt_lower for w in ["bell", "bells", "chime", "chimes", "solfeggio", "singing bowl", "bowl", "zen", "ambient", "healing", "calm"]):
+            detected_sound = "soft_bell"
+        elif any(w in prompt_lower for w in ["wood", "wooden", "block", "click", "stick", "tap", "percussion", "wooden_block"]):
+            detected_sound = "wooden_block"
+        elif any(w in prompt_lower for w in ["metronome", "tick", "ticking", "pulse"]):
+            detected_sound = "metronome"
+        elif any(w in prompt_lower for w in ["drum", "drums", "beat", "rock", "hip hop", "gait", "kick", "snare", "rhythm"]):
+            detected_sound = "drum"
+
+        if detected_sound:
+            st = detected_sound
+        elif session_type and session_type in sound_map:
             st = sound_map[session_type]
         else:
             st = sound_type or "drum"
 
-        resolved_prompt = prompt or custom_prompt or f"{st} rhythm therapeutic beat"
+        if not resolved_prompt:
+            resolved_prompt = f"{st} rhythm therapeutic beat {bpm_val} bpm"
+
         bars_count = max(2, min(16, (duration or 10) // 2))
 
         # Try Hugging Face cloud neural inference
@@ -339,6 +383,7 @@ class BeatGenerator:
                     "audio_url": f"/static/audio/generated/{filename}?v={ts}",
                     "bpm": bpm_val,
                     "sound_type": st,
+                    "prompt": resolved_prompt,
                     "track_title": f"Neural MusicGen: {st.title()} ({bpm_val} BPM)",
                     "engine": "HUGGING_FACE_MUSICGEN",
                     "engine_used": "huggingface_router",
@@ -362,11 +407,13 @@ class BeatGenerator:
             "audio_url": audio_url,
             "bpm": bpm_val,
             "sound_type": st,
+            "prompt": resolved_prompt,
             "track_title": titles.get(st, f"Therapeutic Beat ({bpm_val} BPM)"),
             "engine": "PROCEDURAL_ACOUSTIC_SYNTHESIZER",
             "engine_used": "procedural_acoustic_synth",
             "timestamp": int(time.time() * 1000)
         }
+
 
     # =========================================================================
     # Compatibility methods preserving legacy API surface

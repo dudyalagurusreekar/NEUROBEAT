@@ -580,20 +580,27 @@
                                 <option value="ai_track">AI Track</option>
                             </select>
 
-                            <!-- Custom Cohesive Dropdown Component -->
-                            <div class="dropdown d-inline-block text-start w-100" style="max-width: 270px;">
-                                <button class="btn btn-sm w-100 d-flex align-items-center justify-content-between px-3 py-2 beat-sound-trigger" 
-                                        type="button" 
-                                        id="beatSoundDropdownBtn" 
-                                        data-bs-toggle="dropdown" 
-                                        aria-expanded="false"
-                                        style="background: var(--card-bg, #ffffff); border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); font-size: 0.85rem; font-weight: 500; color: var(--text-primary, #042046); transition: all 0.15s ease;">
-                                    <span class="d-flex align-items-center text-truncate" id="beatSoundCurrentLabel">
-                                        <i data-feather="clock" class="me-2" style="width: 14px; height: 14px; color: #01aac5; flex-shrink: 0;"></i>
-                                        <span>Traditional Metronome</span>
-                                    </span>
-                                    <i data-feather="chevron-down" class="ms-2 text-muted" style="width: 13px; height: 13px; flex-shrink: 0;"></i>
+                            <!-- Custom Cohesive Dropdown Component + AI Studio Button -->
+                            <div class="d-flex align-items-center justify-content-center gap-2 flex-wrap" style="max-width: 320px; margin: 0 auto;">
+                                <div class="dropdown text-start flex-grow-1" style="min-width: 170px;">
+                                    <button class="btn btn-sm w-100 d-flex align-items-center justify-content-between px-3 py-2 beat-sound-trigger" 
+                                            type="button" 
+                                            id="beatSoundDropdownBtn" 
+                                            data-bs-toggle="dropdown" 
+                                            aria-expanded="false"
+                                            style="background: var(--card-bg, #ffffff); border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); font-size: 0.85rem; font-weight: 500; color: var(--text-primary, #042046); transition: all 0.15s ease;">
+                                        <span class="d-flex align-items-center text-truncate" id="beatSoundCurrentLabel">
+                                            <i data-feather="clock" class="me-2" style="width: 14px; height: 14px; color: #01aac5; flex-shrink: 0;"></i>
+                                            <span>Traditional Metronome</span>
+                                        </span>
+                                        <i data-feather="chevron-down" class="ms-2 text-muted" style="width: 13px; height: 13px; flex-shrink: 0;"></i>
+                                    </button>
+                                </div>
+                                <button type="button" class="btn btn-sm px-2 py-2 d-inline-flex align-items-center gap-1 shadow-sm" id="btnAiStudioOpen" onclick="openAiTrackStudioModal()" style="background: rgba(1, 170, 197, 0.15); color: #01aac5; border: 1px solid rgba(1, 170, 197, 0.35); border-radius: 8px; font-size: 0.82rem; font-weight: 600;" title="Open AI Music & Beat Studio">
+                                    <i data-feather="zap" style="width: 13px; height: 13px;"></i>
+                                    <span>AI Studio</span>
                                 </button>
+                            </div>
 
                                 <ul class="dropdown-menu dropdown-menu-end shadow-sm border py-1 mt-1 w-100" 
                                     aria-labelledby="beatSoundDropdownBtn"
@@ -2979,53 +2986,472 @@ function runDemoPhase(phase) {
     }
 }
 
-// Section 44: AI Audio Track Synthesizer (Hugging Face + Acoustic Fallback)
-async function generateAiTrackModal() {
-    const btn = document.getElementById('btnAiSynthTrack') || document.getElementById('beatSoundDropdownBtn');
-    const statusEl = document.getElementById('aiTrackStatus');
-    if (btn) btn.disabled = true;
-    if (statusEl) {
-        statusEl.style.display = 'block';
-        statusEl.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Generating studio acoustic rhythm...';
+// Section 44: AI Audio Track Synthesizer & Studio (Hugging Face + Acoustic Failover)
+let currentAiTrackData = null;
+let aiAudioIsLooping = false;
+let activeAiAudioTrack = null;
+
+function openAiTrackStudioModal() {
+    const modalEl = document.getElementById('aiTrackModal');
+    if (!modalEl) return;
+    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+    modal.show();
+    checkHfRouterStatus();
+    if (typeof feather !== 'undefined') feather.replace();
+}
+
+function generateAiTrackModal() {
+    openAiTrackStudioModal();
+}
+
+async function checkHfRouterStatus() {
+    const dot = document.getElementById('hfStatusDot');
+    const text = document.getElementById('hfStatusBadgeText');
+    const badge = document.getElementById('aiEngineBadge');
+    try {
+        const resp = await fetch('/api/hf/status');
+        const data = await resp.json();
+        if (data.success && data.status) {
+            const st = data.status;
+            if (st.authenticated) {
+                if (dot) dot.className = 'spinner-grow spinner-grow-sm text-success';
+                if (text) text.innerHTML = `<span class="text-success fw-bold">HF Neural MusicGen Online</span> (${st.model})`;
+                if (badge) {
+                    badge.className = 'badge bg-success';
+                    badge.textContent = 'Neural Cloud Active';
+                }
+            } else {
+                if (dot) dot.className = 'spinner-grow spinner-grow-sm text-info';
+                if (text) text.innerHTML = `<span class="text-info fw-bold">Dual-Engine Active:</span> Local Studio Acoustic Synthesizer (Instant Failover)`;
+                if (badge) {
+                    badge.className = 'badge bg-info text-dark';
+                    badge.textContent = 'Studio Acoustic Active';
+                }
+            }
+        }
+    } catch (e) {
+        if (text) text.textContent = 'Dual-engine failover router active.';
     }
+}
+
+function applyAiPromptPreset(promptText, bpmVal, soundType) {
+    const promptInput = document.getElementById('aiPromptInput');
+    if (promptInput) promptInput.value = promptText;
+    updateAiBpmFromNumber(bpmVal);
+}
+
+function updateAiBpmFromSlider(val) {
+    const numInput = document.getElementById('aiBpmNumberInput');
+    const disp = document.getElementById('aiBpmValueDisplay');
+    if (numInput) numInput.value = val;
+    if (disp) disp.textContent = `${val} BPM`;
+}
+
+function updateAiBpmFromNumber(val) {
+    const slider = document.getElementById('aiBpmSlider');
+    const disp = document.getElementById('aiBpmValueDisplay');
+    const cleanVal = Math.max(40, Math.min(180, parseInt(val) || 60));
+    if (slider) slider.value = cleanVal;
+    if (disp) disp.textContent = `${cleanVal} BPM`;
+}
+
+async function executeAiTrackGeneration() {
+    const promptInput = document.getElementById('aiPromptInput');
+    const bpmInput = document.getElementById('aiBpmNumberInput');
+    const durationSelect = document.getElementById('aiDurationSelect');
+    const btn = document.getElementById('btnExecuteAiGenerate');
+    const alertBox = document.getElementById('aiGenerationAlert');
+    const alertText = document.getElementById('aiGenerationAlertText');
+    const spinner = document.getElementById('aiGenSpinner');
+
+    const prompt = (promptInput && promptInput.value.trim()) || 'Calm lo-fi piano 65 bpm';
+    const bpm = parseInt(bpmInput ? bpmInput.value : 65) || 65;
+    const duration = parseInt(durationSelect ? durationSelect.value : 10) || 10;
+
+    if (btn) btn.disabled = true;
+    if (alertBox) {
+        alertBox.style.display = 'flex';
+        alertBox.className = 'alert alert-info py-2 px-3 small mb-3 align-items-center gap-2';
+    }
+    if (alertText) alertText.textContent = `Generating therapeutic track "${prompt}"...`;
+    if (spinner) spinner.style.display = 'inline-block';
 
     try {
         const resp = await fetch('/api/beat/generate_ai', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                bpm: sessionData.currentBPM || 100,
-                session_type: sessionData.sessionType || 'rhythmic_walking',
-                duration: 10
+                prompt: prompt,
+                bpm: bpm,
+                duration: duration,
+                session_type: sessionData ? sessionData.sessionType : 'gait_trainer'
             })
         });
         const res = await resp.json();
         if (res.success && res.audio_url) {
-            if (statusEl) {
-                statusEl.innerHTML = `✅ Audio Track Ready (${res.engine_used}): <a href="${res.audio_url}" target="_blank" class="text-info text-decoration-underline fw-bold">Listen (WAV)</a>`;
+            currentAiTrackData = res;
+            if (alertBox) {
+                alertBox.className = 'alert alert-success py-2 px-3 small mb-3 align-items-center gap-2';
             }
-            if (window.activeAiAudioTrack) {
-                try {
-                    window.activeAiAudioTrack.pause();
-                    window.activeAiAudioTrack.currentTime = 0;
-                } catch(e) {}
-            }
-            const audioPreview = new Audio(res.audio_url);
-            window.activeAiAudioTrack = audioPreview;
-            audioPreview.volume = 0.6;
-            audioPreview.play().catch(e => console.log('Audio autoplay info:', e));
+            const engineLabel = res.engine === 'HUGGING_FACE_MUSICGEN' ? 'Hugging Face Neural MusicGen' : 'Procedural Acoustic Synthesizer';
+            if (alertText) alertText.innerHTML = `✅ Generated successfully via <strong>${engineLabel}</strong>!`;
+            if (spinner) spinner.style.display = 'none';
+
+            loadAiTrackIntoPlayer(res);
         } else {
-            if (statusEl) statusEl.textContent = 'Audio track synthesized in local acoustic mode.';
+            if (alertBox) alertBox.className = 'alert alert-warning py-2 px-3 small mb-3 align-items-center gap-2';
+            if (alertText) alertText.textContent = 'Audio track synthesized in fallback acoustic mode.';
+            if (spinner) spinner.style.display = 'none';
         }
     } catch (e) {
-        console.error('Error generating AI track:', e);
-        if (statusEl) statusEl.textContent = 'AI rhythm synthesized via local engine.';
+        console.error('Track generation error:', e);
+        if (alertBox) alertBox.className = 'alert alert-danger py-2 px-3 small mb-3 align-items-center gap-2';
+        if (alertText) alertText.textContent = 'Error connecting to generator. Using local acoustic synth.';
+        if (spinner) spinner.style.display = 'none';
     } finally {
         if (btn) btn.disabled = false;
         if (typeof feather !== 'undefined') feather.replace();
     }
 }
+
+function loadAiTrackIntoPlayer(trackData) {
+    const playerCard = document.getElementById('aiAudioPlayerCard');
+    const audioEl = document.getElementById('aiGeneratedAudioEl');
+    const titleEl = document.getElementById('aiTrackTitleDisplay');
+    const engineBadge = document.getElementById('aiTrackEngineBadge');
+    const bpmBadge = document.getElementById('aiTrackBpmBadge');
+    const downloadBtn = document.getElementById('aiTrackDownloadBtn');
+
+    if (!audioEl) return;
+    if (playerCard) playerCard.style.display = 'block';
+
+    if (titleEl) titleEl.textContent = trackData.track_title || trackData.prompt || 'Therapeutic Beat';
+    if (engineBadge) {
+        engineBadge.textContent = trackData.engine === 'HUGGING_FACE_MUSICGEN' ? 'HF MusicGen' : 'Acoustic Synth';
+        engineBadge.className = trackData.engine === 'HUGGING_FACE_MUSICGEN' ? 'badge bg-success' : 'badge bg-info text-dark';
+    }
+    if (bpmBadge) bpmBadge.textContent = `${trackData.bpm} BPM`;
+    if (downloadBtn) downloadBtn.href = trackData.audio_url;
+
+    if (window.activeAiAudioTrack) {
+        try {
+            window.activeAiAudioTrack.pause();
+        } catch(e) {}
+    }
+
+    audioEl.src = trackData.audio_url;
+    audioEl.loop = aiAudioIsLooping;
+    audioEl.load();
+    window.activeAiAudioTrack = audioEl;
+
+    setupAudioElementEvents(audioEl);
+
+    audioEl.play().then(() => {
+        setPlayPauseButtonState(true);
+    }).catch(e => {
+        console.log('Autoplay info:', e);
+        setPlayPauseButtonState(false);
+    });
+
+    if (typeof feather !== 'undefined') feather.replace();
+}
+
+function setupAudioElementEvents(audio) {
+    audio.ontimeupdate = () => {
+        const cur = audio.currentTime || 0;
+        const dur = audio.duration || 1;
+        const pct = Math.min(100, (cur / dur) * 100);
+        const bar = document.getElementById('aiAudioProgressBar');
+        const curText = document.getElementById('aiAudioCurrentTime');
+        const durText = document.getElementById('aiAudioDuration');
+        if (bar) bar.style.width = `${pct}%`;
+        if (curText) curText.textContent = formatAudioTime(cur);
+        if (durText && !isNaN(dur) && isFinite(dur)) durText.textContent = formatAudioTime(dur);
+    };
+
+    audio.onended = () => {
+        if (!aiAudioIsLooping) {
+            setPlayPauseButtonState(false);
+        }
+    };
+
+    audio.onplay = () => setPlayPauseButtonState(true);
+    audio.onpause = () => setPlayPauseButtonState(false);
+}
+
+function setPlayPauseButtonState(isPlaying) {
+    const btn = document.getElementById('btnAiPlayPause');
+    const text = document.getElementById('aiPlayPauseText');
+    const icon = document.getElementById('aiPlayPauseIcon');
+    if (!btn) return;
+    if (isPlaying) {
+        if (text) text.textContent = 'Pause';
+        if (icon) icon.setAttribute('data-feather', 'pause');
+        btn.className = 'btn btn-warning px-3 py-1 fw-bold text-dark d-flex align-items-center gap-2 shadow-sm';
+    } else {
+        if (text) text.textContent = 'Play';
+        if (icon) icon.setAttribute('data-feather', 'play');
+        btn.className = 'btn btn-info px-3 py-1 fw-bold text-dark d-flex align-items-center gap-2 shadow-sm';
+    }
+    if (typeof feather !== 'undefined') feather.replace();
+}
+
+function toggleAiAudioPlayPause() {
+    const audio = document.getElementById('aiGeneratedAudioEl');
+    if (!audio || !audio.src) return;
+    if (audio.paused) {
+        audio.play().catch(e => console.error('Play error:', e));
+    } else {
+        audio.pause();
+    }
+}
+
+function toggleAiAudioLoop() {
+    const audio = document.getElementById('aiGeneratedAudioEl');
+    const text = document.getElementById('aiLoopText');
+    const btn = document.getElementById('btnAiLoopToggle');
+    aiAudioIsLooping = !aiAudioIsLooping;
+    if (audio) audio.loop = aiAudioIsLooping;
+    if (text) text.textContent = aiAudioIsLooping ? 'Loop: On' : 'Loop: Off';
+    if (btn) {
+        if (aiAudioIsLooping) {
+            btn.className = 'btn btn-sm btn-info text-dark py-1 px-2 fw-semibold';
+        } else {
+            btn.className = 'btn btn-sm btn-outline-secondary text-light py-1 px-2';
+        }
+    }
+}
+
+function seekAiAudio(event) {
+    const audio = document.getElementById('aiGeneratedAudioEl');
+    const container = document.getElementById('aiAudioProgressContainer');
+    if (!audio || !container || isNaN(audio.duration)) return;
+    const rect = container.getBoundingClientRect();
+    const clickX = event.clientX - rect.left;
+    const ratio = Math.max(0, Math.min(1, clickX / rect.width));
+    audio.currentTime = ratio * audio.duration;
+}
+
+function setAiAudioVolume(val) {
+    const audio = document.getElementById('aiGeneratedAudioEl');
+    if (audio) audio.volume = parseFloat(val);
+}
+
+function toggleAiMute() {
+    const audio = document.getElementById('aiGeneratedAudioEl');
+    const icon = document.getElementById('aiVolumeIcon');
+    if (!audio) return;
+    audio.muted = !audio.muted;
+    if (icon) {
+        icon.setAttribute('data-feather', audio.muted ? 'volume-x' : 'volume-2');
+        if (typeof feather !== 'undefined') feather.replace();
+    }
+}
+
+function formatAudioTime(secs) {
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
+
+function applyAiTrackToSession() {
+    if (!currentAiTrackData) return;
+    const targetBpm = currentAiTrackData.bpm;
+    if (targetBpm && sessionData) {
+        sessionData.currentBPM = targetBpm;
+        updateBPMDisplay();
+        if (typeof adjustAudioTempo === 'function') {
+            adjustAudioTempo(targetBpm);
+        }
+        if (window.nuroSync && typeof window.nuroSync.setBpm === 'function') {
+            window.nuroSync.setBpm(targetBpm);
+        }
+    }
+    selectBeatSoundOption('ai_track', `AI Track (${currentAiTrackData.bpm} BPM)`, 'zap');
+    window.sessionAiTrackAudioUrl = currentAiTrackData.audio_url;
+
+    const modalEl = document.getElementById('aiTrackModal');
+    if (modalEl) {
+        const modal = bootstrap.Modal.getInstance(modalEl);
+        if (modal) modal.hide();
+    }
+
+    const statusEl = document.getElementById('aiTrackStatus');
+    if (statusEl) {
+        statusEl.style.display = 'block';
+        statusEl.innerHTML = `🎵 Active AI Beat: <strong>${currentAiTrackData.track_title}</strong> (${currentAiTrackData.bpm} BPM)`;
+    }
+}
 </script>
+
+<!-- AI Audio Rhythm Studio Modal -->
+<div class="modal fade" id="aiTrackModal" tabindex="-1" aria-labelledby="aiTrackModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content shadow-lg border-0" style="background: #041421; color: #f1f5f9; border: 1px solid rgba(1, 170, 197, 0.3) !important; border-radius: 14px;">
+            <div class="modal-header border-0 pb-0 position-relative">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="d-inline-flex align-items-center justify-content-center rounded-circle" style="width: 44px; height: 44px; background: rgba(1, 170, 197, 0.15); color: #01aac5;">
+                        <i data-feather="music" style="width: 24px; height: 24px;"></i>
+                    </div>
+                    <div>
+                        <h5 class="modal-title fw-bold text-white mb-0" id="aiTrackModalLabel">
+                            AI Rhythm & Beat Studio
+                            <span class="badge ms-2" style="background: rgba(1, 170, 197, 0.2); color: #01aac5; font-size: 0.7rem; vertical-align: 2px;">Dual-Engine</span>
+                        </h5>
+                        <p class="text-muted small mb-0">Hugging Face Neural MusicGen + Procedural Generative Acoustic Synthesizer</p>
+                    </div>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+
+            <div class="modal-body px-4 py-3">
+                <!-- Status Banner -->
+                <div class="d-flex justify-content-between align-items-center p-2 rounded mb-3" style="background: rgba(1, 170, 197, 0.08); border: 1px solid rgba(1, 170, 197, 0.2);">
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="spinner-grow spinner-grow-sm text-info" id="hfStatusDot" style="width: 9px; height: 9px;" role="status"></span>
+                        <span class="small" id="hfStatusBadgeText" style="color: #94a3b8; font-size: 0.78rem;">Checking AI inference router...</span>
+                    </div>
+                    <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; font-size: 0.7rem;" id="aiEngineBadge">Fail-Safe Active</span>
+                </div>
+
+                <!-- Natural Language Prompt Input -->
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold text-light mb-1 d-flex justify-content-between">
+                        <span>Natural Language Prompt:</span>
+                        <span class="text-muted" style="font-size: 0.72rem;">Supports instruments, tempo (BPM), and mood</span>
+                    </label>
+                    <div class="input-group">
+                        <span class="input-group-text border-0" style="background: rgba(1, 170, 197, 0.15); color: #01aac5;">
+                            <i data-feather="mic" style="width: 16px; height: 16px;"></i>
+                        </span>
+                        <input type="text" class="form-control text-white border-0" id="aiPromptInput" 
+                               placeholder="e.g. Calm lo-fi piano 65 bpm, Upbeat rock drums 110 bpm, Ambient healing solfeggio chimes 72 bpm"
+                               style="background: #072235; font-size: 0.9rem;"
+                               value="Calm lo-fi piano 65 bpm">
+                    </div>
+                </div>
+
+                <!-- Prompt Preset Chips -->
+                <div class="mb-3">
+                    <div class="small text-muted mb-1" style="font-size: 0.75rem;">Therapeutic Prompt Presets:</div>
+                    <div class="d-flex flex-wrap gap-2">
+                        <button type="button" class="btn btn-sm btn-outline-secondary text-light py-1 px-2" style="font-size: 0.75rem; border-color: rgba(255,255,255,0.15);" onclick="applyAiPromptPreset('Calm lo-fi piano 65 bpm', 65, 'piano')">
+                            🎹 Calm Lo-Fi Piano (65 BPM)
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary text-light py-1 px-2" style="font-size: 0.75rem; border-color: rgba(255,255,255,0.15);" onclick="applyAiPromptPreset('Upbeat rock drums 110 bpm', 110, 'drum')">
+                            🥁 Upbeat Gait Cue Drums (110 BPM)
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary text-light py-1 px-2" style="font-size: 0.75rem; border-color: rgba(255,255,255,0.15);" onclick="applyAiPromptPreset('Ambient solfeggio healing chimes 72 bpm', 72, 'soft_bell')">
+                            🔔 Solfeggio Healing Bells (72 BPM)
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary text-light py-1 px-2" style="font-size: 0.75rem; border-color: rgba(255,255,255,0.15);" onclick="applyAiPromptPreset('Precision dual-tone woodblock cadence 80 bpm', 80, 'wooden_block')">
+                            🪵 Precision Woodblock (80 BPM)
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Controls: BPM & Duration -->
+                <div class="row g-3 mb-3">
+                    <div class="col-md-7">
+                        <label class="form-label small fw-semibold text-light mb-1 d-flex justify-content-between">
+                            <span>Target Cadence:</span>
+                            <span class="text-info fw-bold" id="aiBpmValueDisplay">65 BPM</span>
+                        </label>
+                        <div class="d-flex align-items-center gap-2">
+                            <input type="range" class="form-range" id="aiBpmSlider" min="40" max="160" step="1" value="65" oninput="updateAiBpmFromSlider(this.value)">
+                            <input type="number" class="form-control form-control-sm text-center text-white border-0" id="aiBpmNumberInput" min="40" max="160" value="65" style="width: 70px; background: #072235;" oninput="updateAiBpmFromNumber(this.value)">
+                        </div>
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label small fw-semibold text-light mb-1">Duration:</label>
+                        <select class="form-select form-select-sm text-white border-0" id="aiDurationSelect" style="background: #072235;">
+                            <option value="6">6 Seconds (Fast Loop)</option>
+                            <option value="10" selected>10 Seconds (Standard 4-8 Bar)</option>
+                            <option value="16">16 Seconds (Full Cadence)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Generate Action Button -->
+                <div class="d-grid mb-3">
+                    <button type="button" class="btn btn-primary py-2 fw-semibold d-flex align-items-center justify-content-center gap-2" id="btnExecuteAiGenerate" onclick="executeAiTrackGeneration()">
+                        <i data-feather="zap" style="width: 18px; height: 18px;"></i>
+                        <span>Generate Audio Track</span>
+                    </button>
+                </div>
+
+                <!-- Generation Status Alert -->
+                <div id="aiGenerationAlert" class="alert py-2 px-3 small mb-3 align-items-center gap-2" style="display: none; border-radius: 8px;">
+                    <div class="spinner-border spinner-border-sm me-2" role="status" id="aiGenSpinner"></div>
+                    <span id="aiGenerationAlertText">Generating audio rhythm...</span>
+                </div>
+
+                <!-- Interactive Audio Player Section (Play / Pause, Scrub Bar, Volume) -->
+                <div id="aiAudioPlayerCard" class="p-3 rounded-3 mt-3" style="background: #072235; border: 1px solid rgba(1, 170, 197, 0.35); display: none;">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div>
+                            <span class="badge" id="aiTrackEngineBadge" style="background: rgba(1, 170, 197, 0.2); color: #01aac5; font-size: 0.7rem;">Neural MusicGen</span>
+                            <span class="badge bg-secondary ms-1" id="aiTrackBpmBadge" style="font-size: 0.7rem;">65 BPM</span>
+                        </div>
+                        <a id="aiTrackDownloadBtn" href="#" target="_blank" download="neurobeat_track.wav" class="btn btn-xs btn-outline-info py-0 px-2" style="font-size: 0.75rem;">
+                            <i data-feather="download" style="width: 12px; height: 12px; vertical-align: -1px;"></i> WAV
+                        </a>
+                    </div>
+
+                    <h6 class="fw-bold text-white mb-2 text-truncate" id="aiTrackTitleDisplay">Calm Lo-Fi Piano</h6>
+
+                    <!-- Timeline Progress Bar -->
+                    <div class="mb-2">
+                        <div class="d-flex justify-content-between text-muted" style="font-size: 0.72rem; margin-bottom: 3px;">
+                            <span id="aiAudioCurrentTime">00:00</span>
+                            <span id="aiAudioDuration">00:10</span>
+                        </div>
+                        <div class="progress" id="aiAudioProgressContainer" style="height: 8px; background: rgba(255,255,255,0.1); cursor: pointer; border-radius: 4px;" onclick="seekAiAudio(event)">
+                            <div class="progress-bar" id="aiAudioProgressBar" role="progressbar" style="width: 0%; background: #01aac5; transition: width 0.05s linear;"></div>
+                        </div>
+                    </div>
+
+                    <!-- Transport Controls: Play/Pause, Volume, Loop -->
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
+                        <div class="d-flex align-items-center gap-2">
+                            <!-- Prominent Play / Pause Button -->
+                            <button type="button" class="btn btn-info px-3 py-1 fw-bold text-dark d-flex align-items-center gap-2 shadow-sm" id="btnAiPlayPause" onclick="toggleAiAudioPlayPause()">
+                                <i data-feather="play" id="aiPlayPauseIcon" style="width: 16px; height: 16px;"></i>
+                                <span id="aiPlayPauseText">Play</span>
+                            </button>
+
+                            <!-- Loop Button -->
+                            <button type="button" class="btn btn-sm btn-outline-secondary text-light py-1 px-2" id="btnAiLoopToggle" onclick="toggleAiAudioLoop()" title="Toggle Repeat Loop">
+                                <i data-feather="repeat" style="width: 14px; height: 14px;"></i>
+                                <span class="ms-1 small" id="aiLoopText">Loop: Off</span>
+                            </button>
+                        </div>
+
+                        <!-- Volume Slider -->
+                        <div class="d-flex align-items-center gap-2" style="max-width: 160px;">
+                            <button type="button" class="btn btn-sm text-muted p-0 border-0" onclick="toggleAiMute()" id="btnAiMute">
+                                <i data-feather="volume-2" id="aiVolumeIcon" style="width: 16px; height: 16px; color: #01aac5;"></i>
+                            </button>
+                            <input type="range" class="form-range" id="aiVolumeSlider" min="0" max="1" step="0.05" value="0.8" oninput="setAiAudioVolume(this.value)" style="height: 4px;">
+                        </div>
+                    </div>
+
+                    <!-- Action: Use As Active Session Beat -->
+                    <div class="mt-3 pt-2 border-top border-secondary border-opacity-25 d-flex justify-content-between align-items-center">
+                        <small class="text-muted" style="font-size: 0.75rem;">Set this AI track as active session rhythm:</small>
+                        <button type="button" class="btn btn-sm btn-outline-success py-1 px-3" id="btnApplyTrackToSession" onclick="applyAiTrackToSession()">
+                            <i data-feather="check" style="width: 13px; height: 13px; vertical-align: -1px;"></i> Use for Session
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Hidden Native Audio Element -->
+                <audio id="aiGeneratedAudioEl" preload="auto" style="display: none;"></audio>
+            </div>
+        </div>
+    </div>
+</div>
+
 
 <!-- Session Complete Modal with Structured Clinical Intelligence & SOAP Documentation -->
 <div class="modal fade" id="sessionCompleteModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false" aria-labelledby="sessionCompleteModalLabel" aria-hidden="true">

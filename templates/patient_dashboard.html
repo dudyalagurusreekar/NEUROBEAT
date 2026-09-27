@@ -317,6 +317,93 @@
             </div>
         </div>
 
+        <!-- AI Beat & Music Studio Card -->
+        <div class="card mb-4 border-0 shadow-sm" style="background: linear-gradient(145deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.95)); color: #f8fafc; border-left: 4px solid #01aac5 !important; border-radius: 12px;">
+            <div class="card-header bg-transparent border-0 d-flex justify-content-between align-items-center pb-1 pt-3 px-3">
+                <div class="d-flex align-items-center gap-2">
+                    <div class="d-inline-flex align-items-center justify-content-center rounded-circle" style="width: 28px; height: 28px; background: rgba(1, 170, 197, 0.2); color: #01aac5;">
+                        <i data-feather="music" style="width: 16px; height: 16px;"></i>
+                    </div>
+                    <h6 class="card-title mb-0 fw-bold text-white" style="font-size: 0.92rem;">
+                        AI Beat Studio
+                    </h6>
+                </div>
+                <span class="badge" style="background: rgba(1, 170, 197, 0.2); color: #01aac5; font-size: 0.65rem;">Dual-Engine AI</span>
+            </div>
+            <div class="card-body px-3 py-2">
+                <p class="small text-muted mb-2" style="font-size: 0.75rem;">
+                    Generate custom rhythm cues with Hugging Face Neural MusicGen or Procedural Acoustic Synthesis.
+                </p>
+
+                <!-- Prompt Input -->
+                <div class="mb-2">
+                    <input type="text" class="form-control form-control-sm text-white border-0" id="dashAiPromptInput" 
+                           placeholder="e.g. Calm lo-fi piano 65 bpm" 
+                           value="Calm lo-fi piano 65 bpm"
+                           style="background: #041421; font-size: 0.8rem; border-radius: 6px;">
+                </div>
+
+                <!-- Chips -->
+                <div class="d-flex flex-wrap gap-1 mb-2">
+                    <button type="button" class="btn btn-xs py-0 px-2 rounded-pill text-light" style="font-size: 0.7rem; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);" onclick="applyDashPromptPreset('Calm lo-fi piano 65 bpm')">
+                        🎹 Piano 65
+                    </button>
+                    <button type="button" class="btn btn-xs py-0 px-2 rounded-pill text-light" style="font-size: 0.7rem; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);" onclick="applyDashPromptPreset('Upbeat rock drums 110 bpm')">
+                        🥁 Drums 110
+                    </button>
+                    <button type="button" class="btn btn-xs py-0 px-2 rounded-pill text-light" style="font-size: 0.7rem; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);" onclick="applyDashPromptPreset('Ambient solfeggio healing chimes 72 bpm')">
+                        🔔 Solfeggio 72
+                    </button>
+                </div>
+
+                <!-- Action Button -->
+                <button type="button" class="btn btn-sm btn-primary w-100 py-1 fw-semibold d-flex align-items-center justify-content-center gap-1 mb-2" id="btnDashGenerateBeat" onclick="generateDashboardBeat()">
+                    <i data-feather="zap" style="width: 14px; height: 14px;"></i>
+                    <span>Generate Beat Track</span>
+                </button>
+
+                <!-- Status alert -->
+                <div id="dashAiStatusAlert" class="small py-1 px-2 rounded text-truncate mb-2" style="display: none; font-size: 0.75rem;"></div>
+
+                <!-- Interactive Audio Player (Play/Pause, Timeline, Volume) -->
+                <div id="dashAiPlayerBox" class="p-2 rounded mt-2" style="background: #041421; border: 1px solid rgba(1, 170, 197, 0.3); display: none;">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <span class="small fw-bold text-white text-truncate" id="dashAiTrackTitle" style="font-size: 0.8rem; max-width: 180px;">Track Title</span>
+                        <span class="badge" id="dashAiTrackBadge" style="background: rgba(1, 170, 197, 0.2); color: #01aac5; font-size: 0.65rem;">HF MusicGen</span>
+                    </div>
+
+                    <!-- Progress bar -->
+                    <div class="d-flex justify-content-between text-muted" style="font-size: 0.68rem; margin-bottom: 2px;">
+                        <span id="dashAiCurrentTime">00:00</span>
+                        <span id="dashAiDuration">00:10</span>
+                    </div>
+                    <div class="progress mb-2" id="dashAiProgressContainer" style="height: 6px; background: rgba(255,255,255,0.1); cursor: pointer;" onclick="seekDashAudio(event)">
+                        <div class="progress-bar" id="dashAiProgressBar" role="progressbar" style="width: 0%; background: #01aac5;"></div>
+                    </div>
+
+                    <!-- Transport Controls -->
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div class="d-flex align-items-center gap-1">
+                            <!-- Play / Pause Button -->
+                            <button type="button" class="btn btn-info btn-sm py-0 px-2 fw-bold text-dark d-flex align-items-center gap-1" id="btnDashAiPlayPause" onclick="toggleDashAiPlayPause()">
+                                <i data-feather="play" id="dashAiPlayIcon" style="width: 13px; height: 13px;"></i>
+                                <span id="dashAiPlayText" style="font-size: 0.75rem;">Play</span>
+                            </button>
+                            <button type="button" class="btn btn-xs btn-outline-secondary text-light py-0 px-1" id="btnDashLoop" onclick="toggleDashAiLoop()" title="Loop Track">
+                                <i data-feather="repeat" style="width: 11px; height: 11px;"></i>
+                            </button>
+                        </div>
+                        <a id="dashAiDownloadLink" href="#" target="_blank" download="neurobeat_track.wav" class="btn btn-xs btn-outline-info py-0 px-2" style="font-size: 0.7rem;">
+                            <i data-feather="download" style="width: 11px; height: 11px;"></i> WAV
+                        </a>
+                    </div>
+                </div>
+
+                <audio id="dashGeneratedAudioEl" preload="auto" style="display: none;"></audio>
+            </div>
+        </div>
+
+
         <!-- Progress Summary -->
         {% if patient_profile.baseline_cadence and patient_profile.target_cadence %}
         <div class="card">
@@ -530,5 +617,152 @@ async function refreshRecentSessions() {
 
 // Auto-refresh every 8 seconds
 setInterval(refreshRecentSessions, 8000);
+
+// ==================================================
+// Dashboard AI Beat Studio Player & Generator
+// ==================================================
+let dashAiAudioLooping = false;
+
+function applyDashPromptPreset(preset) {
+    const input = document.getElementById('dashAiPromptInput');
+    if (input) input.value = preset;
+}
+
+async function generateDashboardBeat() {
+    const input = document.getElementById('dashAiPromptInput');
+    const btn = document.getElementById('btnDashGenerateBeat');
+    const alertBox = document.getElementById('dashAiStatusAlert');
+    const prompt = (input && input.value.trim()) || 'Calm lo-fi piano 65 bpm';
+
+    if (btn) btn.disabled = true;
+    if (alertBox) {
+        alertBox.style.display = 'block';
+        alertBox.className = 'alert alert-info py-1 px-2 small mb-2';
+        alertBox.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Generating beat...';
+    }
+
+    try {
+        const resp = await fetch('/api/beat/generate_ai', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: prompt, duration: 10 })
+        });
+        const data = await resp.json();
+        if (data.success && data.audio_url) {
+            if (alertBox) {
+                alertBox.className = 'alert alert-success py-1 px-2 small mb-2';
+                alertBox.textContent = `✅ Ready (${data.engine_used}): ${data.bpm} BPM`;
+            }
+            loadDashAudio(data);
+        } else {
+            if (alertBox) {
+                alertBox.className = 'alert alert-warning py-1 px-2 small mb-2';
+                alertBox.textContent = 'Synthesized in acoustic fallback mode.';
+            }
+        }
+    } catch (e) {
+        if (alertBox) {
+            alertBox.className = 'alert alert-danger py-1 px-2 small mb-2';
+            alertBox.textContent = 'Error generating audio.';
+        }
+    } finally {
+        if (btn) btn.disabled = false;
+        if (typeof feather !== 'undefined') feather.replace();
+    }
+}
+
+function loadDashAudio(data) {
+    const box = document.getElementById('dashAiPlayerBox');
+    const audio = document.getElementById('dashGeneratedAudioEl');
+    const title = document.getElementById('dashAiTrackTitle');
+    const badge = document.getElementById('dashAiTrackBadge');
+    const dl = document.getElementById('dashAiDownloadLink');
+
+    if (!audio) return;
+    if (box) box.style.display = 'block';
+    if (title) title.textContent = data.track_title || data.prompt || 'Beat';
+    if (badge) {
+        badge.textContent = data.engine === 'HUGGING_FACE_MUSICGEN' ? 'HF MusicGen' : 'Acoustic Synth';
+        badge.className = data.engine === 'HUGGING_FACE_MUSICGEN' ? 'badge bg-success' : 'badge bg-info text-dark';
+    }
+    if (dl) dl.href = data.audio_url;
+
+    audio.src = data.audio_url;
+    audio.loop = dashAiAudioLooping;
+    audio.load();
+
+    audio.ontimeupdate = () => {
+        const cur = audio.currentTime || 0;
+        const dur = audio.duration || 1;
+        const pct = Math.min(100, (cur / dur) * 100);
+        const bar = document.getElementById('dashAiProgressBar');
+        const curText = document.getElementById('dashAiCurrentTime');
+        const durText = document.getElementById('dashAiDuration');
+        if (bar) bar.style.width = `${pct}%`;
+        if (curText) curText.textContent = formatDashTime(cur);
+        if (durText && !isNaN(dur) && isFinite(dur)) durText.textContent = formatDashTime(dur);
+    };
+
+    audio.onended = () => {
+        if (!dashAiAudioLooping) setDashPlayButton(false);
+    };
+    audio.onplay = () => setDashPlayButton(true);
+    audio.onpause = () => setDashPlayButton(false);
+
+    audio.play().then(() => setDashPlayButton(true)).catch(e => setDashPlayButton(false));
+    if (typeof feather !== 'undefined') feather.replace();
+}
+
+function setDashPlayButton(isPlaying) {
+    const text = document.getElementById('dashAiPlayText');
+    const icon = document.getElementById('dashAiPlayIcon');
+    const btn = document.getElementById('btnDashAiPlayPause');
+    if (!btn) return;
+    if (isPlaying) {
+        if (text) text.textContent = 'Pause';
+        if (icon) icon.setAttribute('data-feather', 'pause');
+        btn.className = 'btn btn-warning btn-sm py-0 px-2 fw-bold text-dark d-flex align-items-center gap-1';
+    } else {
+        if (text) text.textContent = 'Play';
+        if (icon) icon.setAttribute('data-feather', 'play');
+        btn.className = 'btn btn-info btn-sm py-0 px-2 fw-bold text-dark d-flex align-items-center gap-1';
+    }
+    if (typeof feather !== 'undefined') feather.replace();
+}
+
+function toggleDashAiPlayPause() {
+    const audio = document.getElementById('dashGeneratedAudioEl');
+    if (!audio || !audio.src) return;
+    if (audio.paused) {
+        audio.play().catch(e => console.error(e));
+    } else {
+        audio.pause();
+    }
+}
+
+function toggleDashAiLoop() {
+    const audio = document.getElementById('dashGeneratedAudioEl');
+    const btn = document.getElementById('btnDashLoop');
+    dashAiAudioLooping = !dashAiAudioLooping;
+    if (audio) audio.loop = dashAiAudioLooping;
+    if (btn) {
+        btn.className = dashAiAudioLooping ? 'btn btn-xs btn-info text-dark py-0 px-1' : 'btn btn-xs btn-outline-secondary text-light py-0 px-1';
+    }
+}
+
+function seekDashAudio(e) {
+    const audio = document.getElementById('dashGeneratedAudioEl');
+    const container = document.getElementById('dashAiProgressContainer');
+    if (!audio || !container || isNaN(audio.duration)) return;
+    const rect = container.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    audio.currentTime = ratio * audio.duration;
+}
+
+function formatDashTime(secs) {
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
 </script>
 {% endblock %}

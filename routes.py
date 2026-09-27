@@ -1547,15 +1547,24 @@ def hf_update_token():
 def generate_ai_beat():
     """Generate audio rhythm track using Hugging Face router with studio acoustic fallback"""
     data = request.get_json(silent=True) or {}
-    bpm = float(data.get('bpm', 100))
+    raw_bpm = data.get('bpm')
+    bpm = None
+    if raw_bpm is not None:
+        try:
+            bpm = float(raw_bpm)
+        except (ValueError, TypeError):
+            bpm = None
+
     prompt = data.get('prompt')
     session_type = data.get('session_type', 'rhythmic_walking')
     duration = int(data.get('duration', 10))
+    sound_type = data.get('sound_type')
 
     from beat_generator import BeatGenerator
     bg = BeatGenerator()
     result = bg.generate_beat_detailed(
-        bpm=bpm,
+        bpm=bpm if bpm is not None else 60,
+        sound_type=sound_type or "drum",
         prompt=prompt,
         session_type=session_type,
         duration=duration
@@ -1564,9 +1573,14 @@ def generate_ai_beat():
         'success': result.get('success', False),
         'audio_url': result.get('audio_url'),
         'engine_used': result.get('engine_used'),
+        'engine': result.get('engine'),
         'bpm': result.get('bpm'),
+        'sound_type': result.get('sound_type'),
+        'track_title': result.get('track_title'),
+        'prompt': result.get('prompt'),
         'details': result
     })
+
 
 
 # ==============================================================================
